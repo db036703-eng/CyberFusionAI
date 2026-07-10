@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #0B1020;
+  --color-bg-secondary: #141A2E;
+  --color-accent: #00E5FF;
+  --color-accent-hover: #00b4cc;
+  --color-border-custom: #232B45;
+
+  --color-success-custom: #22C55E;
+  --color-warning-custom: #F59E0B;
+  --color-critical-custom: #EF4444;
+  --color-info-custom: #3B82F6;
+
+  --radius-card: 24px;
+  --radius-card-lg: 32px;
+
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+/* Base custom styles */
+@layer base {
+  body {
+    background-color: var(--color-bg-primary);
+    color: #F1F5F9;
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+
+  /* Custom scrollbar for premium dashboard */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0B1020;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #232B45;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #00E5FF;
+  }
+}
+
+/* Glassmorphism utility */
+.glass-panel {
+  background: rgba(20, 26, 46, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(35, 43, 69, 0.6);
+}
+
+.glass-panel-light {
+  background: rgba(11, 16, 32, 0.4);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(35, 43, 69, 0.3);
+}
