@@ -1,35 +1,51 @@
 import { useEffect, useState } from 'react'
 import {
   Shield,
-  Activity,
   AlertTriangle,
-  Server,
-  Layers,
+  FlameKindling,
+  Brain,
+  TrendingUp,
+  TrendingDown,
+  Target,
+  Radio,
+  Play,
+  FileText,
+  RefreshCw,
+  ShieldAlert,
   Terminal,
-  ShieldCheck,
-  FlameKindling
+  Layers,
+  Activity
 } from 'lucide-react'
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip
-} from 'recharts'
 import { Sidebar } from './components/layout/Sidebar'
 import { Navbar } from './components/layout/Navbar'
 import { NotificationPanel } from './components/layout/NotificationPanel'
-import { MetricCard } from './components/ui/MetricCard'
 import { Card } from './components/ui/Card'
 import { Button } from './components/ui/Button'
 import { Badge } from './components/ui/Badge'
 import { Drawer } from './components/ui/Drawer'
-import { Timeline, TimelineItem } from './components/ui/Timeline'
 import { EmptyState } from './components/ui/EmptyState'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/Table'
 import { useUIStore } from './store/uiStore'
+
+// Import new modular dashboard widgets
+import { AttackTimeline } from './components/ui/AttackTimeline'
+import { ThreatIntelFeed } from './components/ui/ThreatIntelFeed'
+import { MitreAttackMatrix } from './components/ui/MitreAttackMatrix'
+import { AiAnalystSummary } from './components/ui/AiAnalystSummary'
+import { RecentReports } from './components/ui/RecentReports'
+
+// Import expanded page views
+import { AttackSimulatorPage } from './components/pages/AttackSimulatorPage'
+import { ThreatIntelPage } from './components/pages/ThreatIntelPage'
+import { IocManagerPage } from './components/pages/IocManagerPage'
+import { ThreatActorsPage } from './components/pages/ThreatActorsPage'
+import { MitreAttackPage } from './components/pages/MitreAttackPage'
+import { AttackTimelinePage } from './components/pages/AttackTimelinePage'
+import { ReportsPage } from './components/pages/ReportsPage'
+import { AiAnalystPage } from './components/pages/AiAnalystPage'
+import { SettingsPage } from './components/pages/SettingsPage'
+import { ProfilePage } from './components/pages/ProfilePage'
+import { AdminPage } from './components/pages/AdminPage'
 
 interface HealthResponse {
   status: string
@@ -37,18 +53,101 @@ interface HealthResponse {
   version: string
 }
 
-// Chart data representing security incidents over a week
-const chartData = [
-  { name: '00:00', threats: 12, anomalies: 34 },
-  { name: '04:00', threats: 24, anomalies: 45 },
-  { name: '08:00', threats: 18, anomalies: 50 },
-  { name: '12:00', threats: 35, anomalies: 62 },
-  { name: '16:00', threats: 28, anomalies: 41 },
-  { name: '20:00', threats: 40, anomalies: 58 },
-  { name: '24:00', threats: 31, anomalies: 47 }
-]
+// Premium KPI Card component with tooltips and hover animations
+interface PremiumKpiCardProps {
+  title: string
+  value: string | number
+  trend: string
+  trendType: 'increase' | 'decrease' | 'stable'
+  icon: React.ReactNode
+  tooltip: string
+  color: 'accent' | 'critical' | 'warning' | 'info' | 'success'
+}
+
+const PremiumKpiCard: React.FC<PremiumKpiCardProps> = ({
+  title,
+  value,
+  trend,
+  trendType,
+  icon,
+  tooltip,
+  color
+}) => {
+  const [showTooltip, setShowTooltip] = useState(false)
+  
+  const borderColors = {
+    accent: 'border-accent/20 hover:border-accent shadow-accent/5',
+    critical: 'border-critical-custom/25 hover:border-critical-custom shadow-critical-custom/5',
+    warning: 'border-warning-custom/25 hover:border-warning-custom shadow-warning-custom/5',
+    info: 'border-info-custom/25 hover:border-info-custom shadow-info-custom/5',
+    success: 'border-success-custom/25 hover:border-success-custom shadow-success-custom/5'
+  }
+
+  const glowClasses = {
+    accent: 'cyber-glow-accent',
+    critical: 'cyber-glow-critical',
+    warning: 'cyber-glow-warning',
+    info: 'cyber-glow-info',
+    success: 'cyber-glow-accent'
+  }
+
+  const textColors = {
+    accent: 'text-accent',
+    critical: 'text-critical-custom',
+    warning: 'text-warning-custom',
+    info: 'text-info-custom',
+    success: 'text-success-custom'
+  }
+
+  return (
+    <div
+      className={`relative group bg-bg-secondary border p-6 rounded-card transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${borderColors[color]} ${glowClasses[color]} flex flex-col justify-between min-h-[145px]`}
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <div className="flex items-start justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</span>
+        <div className={`p-2 rounded-xl bg-bg-primary border border-border-custom group-hover:scale-110 transition-transform ${textColors[color]}`}>
+          {icon}
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-baseline justify-between">
+        <span className="text-3xl font-extrabold tracking-tight text-white">{value}</span>
+        <div className={`flex items-center space-x-1 text-xs font-mono px-2 py-0.5 rounded-full ${
+          trendType === 'increase' ? 'bg-success-custom/10 text-success-custom' :
+          trendType === 'decrease' ? 'bg-critical-custom/10 text-critical-custom' :
+          'bg-slate-800 text-slate-400'
+        }`}>
+          {trendType === 'increase' && <TrendingUp className="h-3 w-3" />}
+          {trendType === 'decrease' && <TrendingDown className="h-3 w-3" />}
+          <span>{trend}</span>
+        </div>
+      </div>
+
+      {/* Dynamic indicator bar at the bottom */}
+      <div className={`absolute bottom-0 left-6 right-6 h-[2px] rounded-t-full transition-all duration-300 opacity-60 group-hover:opacity-100 ${
+        color === 'accent' ? 'bg-accent' :
+        color === 'critical' ? 'bg-critical-custom' :
+        color === 'warning' ? 'bg-warning-custom' :
+        color === 'info' ? 'bg-info-custom' :
+        'bg-success-custom'
+      }`} />
+
+      {/* Tooltip Overlay */}
+      {showTooltip && (
+        <div className="absolute top-[-48px] left-1/2 -translate-x-1/2 bg-[#141A2E] border border-border-custom text-slate-200 text-[11px] px-3 py-2 rounded-lg shadow-2xl z-30 transition-all duration-200 pointer-events-none font-mono text-center min-w-[200px] leading-snug">
+          {tooltip}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function App() {
+  const [simulationStatus, setSimulationStatus] = useState<'idle' | 'running' | 'completed'>('idle')
+  const [reportProgress, setReportProgress] = useState<'idle' | 'generating' | 'done'>('idle')
+
   const {
     activeTab,
     searchQuery,
@@ -81,6 +180,44 @@ function App() {
     }
   }
 
+  const handleLaunchSimulation = () => {
+    if (simulationStatus === 'running') return
+    setSimulationStatus('running')
+    setTimeout(() => {
+      setSimulationStatus('completed')
+      setTimeout(() => setSimulationStatus('idle'), 4000)
+    }, 3000)
+  }
+
+  const handleGenerateReport = () => {
+    if (reportProgress === 'generating') return
+    setReportProgress('generating')
+    setTimeout(() => {
+      setReportProgress('done')
+      
+      // Trigger client-side mockup text file download
+      const element = document.createElement('a')
+      const file = new Blob([
+        `CyberFusion AI Security Operations Center Executive Report\n`,
+        `=======================================================\n`,
+        `Generated: ${new Date().toLocaleString()}\n`,
+        `Organization Risk Score: 72 (Medium)\n`,
+        `Active Critical Threats: ${incidents.filter(i => i.severity === 'critical' && i.status === 'active').length}\n`,
+        `Active Open Anomalies: ${incidents.filter(i => i.status === 'active' || i.status === 'investigating').length}\n`,
+        `Indicators of Compromise Matched: 412 Matches\n`,
+        `Threat Ingestion Channel: 99.8% Healthy\n`,
+        `AI Cognitive Analytics Confidence: 94.2%\n`
+      ], { type: 'text/plain' })
+      element.href = URL.createObjectURL(file)
+      element.download = `CyberFusion_Executive_Report_${Date.now()}.txt`
+      document.body.appendChild(element)
+      element.click()
+      document.body.removeChild(element)
+      
+      setTimeout(() => setReportProgress('idle'), 3000)
+    }, 2000)
+  }
+
   useEffect(() => {
     verifyBackendHealth()
     const timer = setInterval(verifyBackendHealth, 15000) // Poll health every 15s
@@ -103,7 +240,6 @@ function App() {
   // Core metrics aggregations
   const criticalCount = incidents.filter(i => i.severity === 'critical' && i.status === 'active').length
   const activeCount = incidents.filter(i => i.status === 'active' || i.status === 'investigating').length
-  const mitigatedCount = incidents.filter(i => i.status === 'mitigated' || i.status === 'resolved').length
 
   return (
     <div className="min-h-screen bg-bg-primary text-slate-100 flex font-sans overflow-hidden">
@@ -123,115 +259,155 @@ function App() {
           {/* TAB 1: OVERVIEW DASHBOARD */}
           {activeTab === 'overview' && (
             <div className="space-y-8">
-              {/* Header and system alert banner */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-3xl font-bold tracking-tight text-white m-0">Security Operations Command</h2>
-                  <p className="text-slate-400 text-sm mt-1">Real-time indicators, active anomaly telemetry, and threat vector tracking.</p>
+              {/* Simulation Status Toast Banner */}
+              {simulationStatus !== 'idle' && (
+                <div className={`p-4 rounded-xl border flex items-center justify-between transition-all duration-300 animate-pulse ${
+                  simulationStatus === 'running'
+                    ? 'bg-accent/10 border-accent/30 text-accent font-semibold'
+                    : 'bg-success-custom/10 border-success-custom/30 text-success-custom font-semibold'
+                }`}>
+                  <div className="flex items-center space-x-3">
+                    <ShieldAlert className="h-5 w-5 shrink-0" />
+                    <span className="text-sm font-mono">
+                      {simulationStatus === 'running'
+                        ? 'ATTACK SIMULATION ACTIVE: Executing multi-stage intrusion scenario T1566.002 on corporate subnets...'
+                        : 'SIMULATION COMPLETED: Vulnerability payloads isolated. Anomalous activity log updated.'}
+                    </span>
+                  </div>
+                  {simulationStatus === 'running' && (
+                    <div className="h-1.5 w-24 bg-accent/20 rounded-full overflow-hidden shrink-0">
+                      <div className="h-full bg-accent w-1/2 rounded-full animate-bounce" />
+                    </div>
+                  )}
                 </div>
+              )}
+
+              {/* 1. HERO SECTION */}
+              <div className="relative overflow-hidden p-8 rounded-card bg-gradient-to-r from-bg-secondary via-bg-secondary to-bg-primary border border-border-custom shadow-2xl">
+                {/* Backplate patterns */}
+                <div className="absolute inset-0 cyber-grid-bg opacity-30 pointer-events-none" />
+                <div className="absolute -right-20 -top-20 h-64 w-64 bg-accent/5 rounded-full blur-3xl pointer-events-none" />
                 
-                {criticalCount > 0 && (
-                  <div className="flex items-center space-x-2 px-4 py-2 bg-critical-custom/10 border border-critical-custom/20 rounded-xl text-critical-custom text-xs font-mono animate-pulse">
-                    <FlameKindling className="h-4 w-4" />
-                    <span>{criticalCount} CRITICAL THREATS ACTIVE</span>
+                <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6 z-10">
+                  <div className="space-y-2.5">
+                    <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-warning-custom/10 border border-warning-custom/25 text-warning-custom text-xs font-mono">
+                      <Shield className="h-3.5 w-3.5" />
+                      <span>Organization Risk: 72 (Medium)</span>
+                    </div>
+                    <h1 className="text-4xl font-extrabold tracking-tight text-white m-0">
+                      Good Morning, Analyst
+                    </h1>
+                    <p className="text-slate-400 text-sm flex items-center gap-2 font-medium">
+                      <span className="h-2 w-2 rounded-full bg-critical-custom animate-pulse shrink-0" />
+                      <span>3 Critical Incidents require immediate attention.</span>
+                    </p>
                   </div>
-                )}
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      variant="primary"
+                      onClick={handleLaunchSimulation}
+                      disabled={simulationStatus === 'running'}
+                      className="font-mono text-xs flex items-center space-x-2 border border-accent hover:bg-accent/15 group"
+                    >
+                      <Play className={`h-4 w-4 transition-transform group-hover:scale-110 ${simulationStatus === 'running' ? 'animate-spin' : ''}`} />
+                      <span>{simulationStatus === 'running' ? 'Simulating...' : 'Launch Attack Simulation'}</span>
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={handleGenerateReport}
+                      disabled={reportProgress === 'generating'}
+                      className="font-mono text-xs flex items-center space-x-2 border border-border-custom hover:border-slate-650"
+                    >
+                      {reportProgress === 'generating' ? (
+                        <RefreshCw className="h-4 w-4 animate-spin text-accent" />
+                      ) : (
+                        <FileText className="h-4 w-4 text-slate-400" />
+                      )}
+                      <span>{reportProgress === 'generating' ? 'Compiling PDF...' : 'Generate Executive Report'}</span>
+                    </Button>
+                  </div>
+                </div>
               </div>
 
-              {/* Metrics grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <MetricCard
-                  title="Threat Index level"
-                  value={criticalCount > 0 ? "74 / 100" : "12 / 100"}
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                  change={{ value: criticalCount > 0 ? 15 : 4, type: criticalCount > 0 ? 'increase' : 'decrease' }}
+              {/* 2. 6 KPI CARDS */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
+                <PremiumKpiCard
+                  title="Organization Risk Score"
+                  value={criticalCount === 0 ? "32" : "72"}
+                  trend="+2.4%"
+                  trendType="increase"
+                  icon={<AlertTriangle className="h-5 w-5" />}
+                  tooltip="Consolidated threat index factor based on active machine vulnerabilities (Medium Risk)."
+                  color="warning"
                 />
-                <MetricCard
-                  title="Active Incidents"
+                <PremiumKpiCard
+                  title="Critical Incidents"
+                  value={criticalCount}
+                  trend={criticalCount > 0 ? `+${criticalCount - 1} this hr` : "Stable"}
+                  trendType={criticalCount > 0 ? "increase" : "stable"}
+                  icon={<FlameKindling className="h-5 w-5" />}
+                  tooltip="Severely anomalous machine actions requiring immediate containment playbooks."
+                  color="critical"
+                />
+                <PremiumKpiCard
+                  title="Open Incidents"
                   value={activeCount}
-                  icon={<Shield className="h-4 w-4" />}
+                  trend="-2 yesterday"
+                  trendType="decrease"
+                  icon={<Shield className="h-5 w-5" />}
+                  tooltip="Total security alerts currently actively investigated by SOC operators."
+                  color="info"
                 />
-                <MetricCard
-                  title="Endpoints Monitored"
-                  value="1,428 Nodes"
-                  icon={<Server className="h-4 w-4" />}
-                  change={{ value: 2.4, type: 'increase' }}
+                <PremiumKpiCard
+                  title="IOC Matches"
+                  value="412"
+                  trend="+14%"
+                  trendType="increase"
+                  icon={<Target className="h-5 w-5" />}
+                  tooltip="Correlated indicator signatures matched across proxy & database ports."
+                  color="warning"
                 />
-                <MetricCard
-                  title="Resolved Telemetry"
-                  value={mitigatedCount}
-                  icon={<ShieldCheck className="h-4 w-4" />}
+                <PremiumKpiCard
+                  title="Threat Feed Health"
+                  value="99.8%"
+                  trend="Stable"
+                  trendType="stable"
+                  icon={<Radio className="h-5 w-5" />}
+                  tooltip="Operational rate of active ingested global security intelligence feeds."
+                  color="success"
+                />
+                <PremiumKpiCard
+                  title="AI Confidence Score"
+                  value="94.2%"
+                  trend="+1.2%"
+                  trendType="increase"
+                  icon={<Brain className="h-5 w-5" />}
+                  tooltip="Autonomous classifier precision rate mapping historical telemetry nodes."
+                  color="accent"
                 />
               </div>
 
-              {/* Graphical distribution and timeline trail */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Visual Chart */}
-                <Card className="lg:col-span-2 flex flex-col justify-between min-h-[350px]">
-                  <div className="mb-4">
-                    <h3 className="text-base font-bold text-white leading-none">Security Telemetry Rate</h3>
-                    <p className="text-slate-500 text-xs mt-1">Simulated ingestion metrics of parsed anomalies against resolved threat patterns.</p>
-                  </div>
-                  <div className="h-64 w-full text-xs font-mono">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="colorThreats" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#00E5FF" stopOpacity={0.25}/>
-                            <stop offset="95%" stopColor="#00E5FF" stopOpacity={0}/>
-                          </linearGradient>
-                          <linearGradient id="colorAnomalies" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.15}/>
-                            <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#232B45" opacity={0.4} />
-                        <XAxis dataKey="name" stroke="#5F6D7E" />
-                        <YAxis stroke="#5F6D7E" />
-                        <Tooltip contentStyle={{ backgroundColor: '#141A2E', borderColor: '#232B45', borderRadius: '12px' }} />
-                        <Area type="monotone" dataKey="threats" stroke="#00E5FF" strokeWidth={2} fillOpacity={1} fill="url(#colorThreats)" name="Active Threats" />
-                        <Area type="monotone" dataKey="anomalies" stroke="#3B82F6" strokeWidth={2} fillOpacity={1} fill="url(#colorAnomalies)" name="Telemetry Anomalies" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </Card>
+              {/* 3. ATTACK TIMELINE */}
+              <AttackTimeline />
 
-                {/* Audit trail / Timeline */}
-                <Card className="flex flex-col">
-                  <div className="mb-6">
-                    <h3 className="text-base font-bold text-white leading-none">Audit & Activity Log</h3>
-                    <p className="text-slate-500 text-xs mt-1">Platform actions and configuration changes.</p>
-                  </div>
-                  <div className="flex-1 overflow-y-auto max-h-[250px] pr-2">
-                    <Timeline>
-                      <TimelineItem
-                        title="Database Monitor HealthCheck"
-                        time="19:28:46"
-                        description="Auto ping validation verified db configuration layers are responsive."
-                        statusColor="success"
-                      />
-                      <TimelineItem
-                        title="Alert MIT-309 Applied"
-                        time="18:55:00"
-                        description="AWS wildcards reverted to secure network mappings."
-                        statusColor="info"
-                      />
-                      <TimelineItem
-                        title="Threat Flagged on DB"
-                        time="18:12:03"
-                        description="High SSH attempts detected. Incident INC-2026-001 created."
-                        statusColor="critical"
-                      />
-                    </Timeline>
-                  </div>
-                </Card>
-              </div>
+              {/* 4. THREAT INTELLIGENCE FEED */}
+              <ThreatIntelFeed />
 
-              {/* Highlighted Alerts preview panel */}
+              {/* 5. MITRE ATT&CK ACTIVITY */}
+              <MitreAttackMatrix />
+
+              {/* 6. AI ANALYST SUMMARY */}
+              <AiAnalystSummary />
+
+              {/* 7. RECENT INCIDENTS TABLE */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-base font-bold text-white m-0">Recent Actionable Incidents</h3>
-                  <Button variant="secondary" size="sm" onClick={() => useUIStore.getState().setActiveTab('incidents')}>
+                  <div>
+                    <h3 className="text-base font-bold text-white m-0">Recent Actionable Incidents</h3>
+                    <p className="text-slate-500 text-xs mt-1">Audit log of priority anomalies currently in ingestion pipelines.</p>
+                  </div>
+                  <Button variant="secondary" size="sm" onClick={() => useUIStore.getState().setActiveTab('incidents')} className="font-mono text-xs">
                     View All Incidents
                   </Button>
                 </div>
@@ -252,7 +428,7 @@ function App() {
                       <TableRow
                         key={inc.id}
                         onClick={() => selectIncident(inc)}
-                        className="cursor-pointer"
+                        className="cursor-pointer transition-colors duration-150 hover:bg-bg-primary/45"
                       >
                         <TableCell className="font-mono text-accent font-semibold">{inc.id}</TableCell>
                         <TableCell className="font-semibold text-white">{inc.title}</TableCell>
@@ -265,7 +441,7 @@ function App() {
                         <TableCell>{inc.category}</TableCell>
                         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                           {inc.status === 'active' || inc.status === 'investigating' ? (
-                            <Button variant="primary" size="sm" onClick={() => mitigateIncident(inc.id)}>
+                            <Button variant="primary" size="sm" onClick={() => mitigateIncident(inc.id)} className="font-mono text-xs">
                               Mitigate
                             </Button>
                           ) : (
@@ -277,6 +453,9 @@ function App() {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* 8. RECENT REPORTS */}
+              <RecentReports />
             </div>
           )}
 
@@ -471,6 +650,39 @@ function App() {
               </div>
             </div>
           )}
+
+          {/* TAB 4: ATTACK SIMULATOR */}
+          {activeTab === 'simulator' && <AttackSimulatorPage />}
+
+          {/* TAB 5: THREAT INTELLIGENCE */}
+          {activeTab === 'intel' && <ThreatIntelPage />}
+
+          {/* TAB 6: IOC MANAGER */}
+          {activeTab === 'ioc' && <IocManagerPage />}
+
+          {/* TAB 7: THREAT ACTORS */}
+          {activeTab === 'actors' && <ThreatActorsPage />}
+
+          {/* TAB 8: MITRE ATT&CK */}
+          {activeTab === 'mitre' && <MitreAttackPage />}
+
+          {/* TAB 9: ATTACK TIMELINE */}
+          {activeTab === 'timeline' && <AttackTimelinePage />}
+
+          {/* TAB 10: REPORTS */}
+          {activeTab === 'reports' && <ReportsPage />}
+
+          {/* TAB 11: AI ANALYST */}
+          {activeTab === 'ai_analyst' && <AiAnalystPage />}
+
+          {/* TAB 12: SETTINGS */}
+          {activeTab === 'settings' && <SettingsPage />}
+
+          {/* TAB 13: USER PROFILE */}
+          {activeTab === 'profile' && <ProfilePage />}
+
+          {/* TAB 14: SYSTEM ADMIN */}
+          {activeTab === 'admin' && <AdminPage />}
 
         </main>
       </div>

@@ -3,6 +3,7 @@ import { Bell } from 'lucide-react'
 import { SearchBar } from '../ui/SearchBar'
 import { Badge } from '../ui/Badge'
 import { useUIStore } from '../../store/uiStore'
+import { CommandPalette } from '../ui/CommandPalette'
 
 interface NavbarProps {
   apiStatus: 'healthy' | 'unhealthy' | 'loading'
@@ -21,8 +22,11 @@ export const Navbar: React.FC<NavbarProps> = ({ apiStatus }) => {
   
   return (
     <header className="sticky top-0 z-10 w-full glass-panel border-b border-border-custom px-8 py-4 flex items-center justify-between">
-      {/* Search Input */}
-      <SearchBar placeholder="Search active incidents, sources, anomalies..." onSearchChange={setSearchQuery} />
+      {/* Search Input & Command Palette */}
+      <div className="flex items-center space-x-3 flex-1 max-w-xl pr-4">
+        <SearchBar placeholder="Search active incidents, sources, anomalies..." onSearchChange={setSearchQuery} />
+        <CommandPalette />
+      </div>
       
       {/* Controls */}
       <div className="flex items-center space-x-6">
