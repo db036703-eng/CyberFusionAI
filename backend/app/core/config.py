@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     REDIS_PORT: str = "6379"
     REDIS_URL: Optional[str] = None
 
+    # Security
+    SECRET_KEY: str = "7d5fc79279a0b127ab2d6657bb6746fc3c126dcae3dbf3ff12db475fb149be9a"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -3,6 +3,9 @@ FROM python:3.11-slim
 
 WORKDIR /backend
 
+# Set python path so backend modules are importable
+ENV PYTHONPATH=/backend
+
 # Install build dependencies for postgres adapter if needed
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \

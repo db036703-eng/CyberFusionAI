@@ -20,9 +20,11 @@ import {
   Activity
 } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
+import { useAuthStore } from '../../store/authStore'
 
 export const Sidebar: React.FC = () => {
   const { sidebarOpen, activeTab, toggleSidebar, setActiveTab } = useUIStore()
+  const { user } = useAuthStore()
   
   const navItems = [
     { id: 'overview', name: 'Dashboard', icon: <LayoutDashboard className="h-5 w-5" /> },
@@ -40,6 +42,20 @@ export const Sidebar: React.FC = () => {
     { id: 'admin', name: 'Admin', icon: <ShieldCheck className="h-5 w-5" /> },
     { id: 'health', name: 'System Health', icon: <Activity className="h-5 w-5" /> }
   ]
+
+  const filteredNavItems = navItems.filter((item) => {
+    if (!user) return false
+    if (user.role === 'Viewer') {
+      return !['admin', 'simulator', 'ioc'].includes(item.id)
+    }
+    if (user.role === 'Threat Hunter') {
+      return !['admin', 'simulator'].includes(item.id)
+    }
+    if (user.role === 'SOC Analyst') {
+      return item.id !== 'admin'
+    }
+    return true
+  })
   
   return (
     <motion.aside
@@ -78,7 +94,7 @@ export const Sidebar: React.FC = () => {
 
         {/* Navigation Items (Scrollable) */}
         <nav className="flex-1 overflow-y-auto p-4 space-y-1.5 custom-scrollbar scrollbar-thin">
-          {navItems.map((item) => {
+          {filteredNavItems.map((item) => {
             const isActive = activeTab === item.id
             return (
               <button

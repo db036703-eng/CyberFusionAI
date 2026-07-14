@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import {
   Shield,
   AlertTriangle,
@@ -26,6 +27,11 @@ import { Drawer } from './components/ui/Drawer'
 import { EmptyState } from './components/ui/EmptyState'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/Table'
 import { useUIStore } from './store/uiStore'
+import { LoginPage } from './components/pages/LoginPage'
+import { RegisterPage } from './components/pages/RegisterPage'
+import { ForgotPasswordPage } from './components/pages/ForgotPasswordPage'
+import { ProtectedRoute } from './components/ProtectedRoute'
+import { useAuthStore } from './store/authStore'
 
 // Import new modular dashboard widgets
 import { AttackTimeline } from './components/ui/AttackTimeline'
@@ -144,7 +150,7 @@ const PremiumKpiCard: React.FC<PremiumKpiCardProps> = ({
   )
 }
 
-function App() {
+function MainLayout() {
   const [simulationStatus, setSimulationStatus] = useState<'idle' | 'running' | 'completed'>('idle')
   const [reportProgress, setReportProgress] = useState<'idle' | 'generating' | 'done'>('idle')
 
@@ -682,7 +688,11 @@ function App() {
           {activeTab === 'profile' && <ProfilePage />}
 
           {/* TAB 14: SYSTEM ADMIN */}
-          {activeTab === 'admin' && <AdminPage />}
+          {activeTab === 'admin' && (
+            <ProtectedRoute allowedRoles={['Super Admin']}>
+              <AdminPage />
+            </ProtectedRoute>
+          )}
 
         </main>
       </div>
@@ -760,6 +770,42 @@ function App() {
         )}
       </Drawer>
     </div>
+  )
+}
+
+function App() {
+  const initializeAuth = useAuthStore(state => state.initialize)
+  const isAuthLoading = useAuthStore(state => state.isLoading)
+
+  useEffect(() => {
+    initializeAuth()
+  }, [initializeAuth])
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-bg-primary text-slate-100 flex flex-col items-center justify-center space-y-4">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent border-t-transparent" />
+        <span className="text-xs font-mono text-slate-400">Verifying security parameters...</span>
+      </div>
+    )
+  }
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <MainLayout />
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+    </BrowserRouter>
   )
 }
 
