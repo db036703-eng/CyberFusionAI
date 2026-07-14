@@ -1,4 +1,5 @@
 import React from 'react'
+import { motion } from 'framer-motion'
 import { Card } from './Card'
 import { Fingerprint, Globe, WifiOff } from 'lucide-react'
 
@@ -47,21 +48,42 @@ export const ThreatIntelFeed: React.FC = () => {
     }
   ]
 
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  }
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 10 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' as const } }
+  }
+
   return (
-    <Card hoverEffect className="relative overflow-hidden">
+    <Card hoverEffect className="relative overflow-hidden bg-[#12182A]/90 border border-border-custom/80 shadow-[0_8px_30px_rgb(0,0,0,0.25)] rounded-2xl p-6 h-full flex flex-col justify-between">
       <div>
         <h3 className="text-base font-bold text-white leading-none">Threat Intelligence Feed</h3>
         <p className="text-slate-500 text-xs mt-1">Live ingest of global threat indicators and vulnerability reports.</p>
       </div>
 
-      <div className="mt-6 space-y-4">
+      <motion.div 
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+        className="mt-6 space-y-4"
+      >
         {feeds.map((item, idx) => (
-          <div
+          <motion.div
             key={idx}
-            className="flex items-center justify-between p-3.5 rounded-xl bg-bg-primary/40 border border-border-custom/50 hover:bg-bg-primary/80 transition duration-200"
+            variants={itemVariants}
+            className="flex items-center justify-between p-3.5 rounded-xl bg-[#0A0F1F]/40 border border-border-custom/60 hover:bg-[#0A0F1F]/70 hover:border-slate-700/80 transition duration-200"
           >
             <div className="flex items-center space-x-4 min-w-0">
-              <div className={`p-2 rounded-lg bg-bg-secondary border border-border-custom text-slate-400 shrink-0`}>
+              <div className="p-2 rounded-lg bg-[#12182A] border border-border-custom text-slate-400 shrink-0">
                 {item.id.startsWith('CVE') ? <Fingerprint className="h-4 w-4 text-warning-custom" /> : 
                  item.id.startsWith('IP') ? <WifiOff className="h-4 w-4 text-critical-custom" /> :
                  <Globe className="h-4 w-4 text-info-custom" />}
@@ -69,19 +91,19 @@ export const ThreatIntelFeed: React.FC = () => {
               <div className="min-w-0">
                 <div className="flex items-center space-x-2">
                   <span className="text-xs font-mono font-bold text-white shrink-0">{item.id}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">via {item.source}</span>
+                  <span className="text-[9px] text-slate-500 font-mono">via {item.source}</span>
                 </div>
-                <p className="text-xs text-slate-450 truncate mt-1">{item.indicator}</p>
+                <p className="text-xs text-slate-400 truncate mt-1 font-medium">{item.indicator}</p>
               </div>
             </div>
 
             <div className="flex flex-col items-end shrink-0 pl-2">
               <span className="text-[10px] text-slate-500 font-mono">{item.timestamp}</span>
-              <span className="text-[10px] text-accent font-mono mt-1 font-semibold">{item.status}</span>
+              <span className="text-[10px] text-accent font-mono mt-1.5 font-semibold">{item.status}</span>
             </div>
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
     </Card>
   )
 }
