@@ -53,11 +53,7 @@ import { SettingsPage } from './components/pages/SettingsPage'
 import { ProfilePage } from './components/pages/ProfilePage'
 import { AdminPage } from './components/pages/AdminPage'
 
-interface HealthResponse {
-  status: string
-  service: string
-  version: string
-}
+// Import expanded page views
 
 // Premium KPI Card component with tooltips and hover animations
 interface PremiumKpiCardProps {
@@ -186,29 +182,24 @@ function MainLayout() {
     incidents,
     selectIncident,
     setDetailDrawerOpen,
-    mitigateIncident
+    mitigateIncident,
+    
+    dashboardSummary,
+    systemHealth,
+    isLoading,
+    error,
+    
+    fetchDashboardSummary,
+    fetchRecentIncidents,
+    fetchThreatFeed,
+    fetchSystemHealth,
+    fetchIncidents
   } = useUIStore()
-
-  // API connection health states
-  const [apiStatus, setApiStatus] = useState<'healthy' | 'unhealthy' | 'loading'>('loading')
-  const [apiDetails, setApiDetails] = useState<HealthResponse | null>(null)
   
   // Incidents Filter (by severity)
   const [severityFilter, setSeverityFilter] = useState<string>('all')
 
-  const verifyBackendHealth = async () => {
-    setApiStatus('loading')
-    try {
-      const response = await fetch('http://localhost:8000/health')
-      if (!response.ok) throw new Error('Response error')
-      const data = await response.json()
-      setApiDetails(data)
-      setApiStatus('healthy')
-    } catch {
-      setApiStatus('unhealthy')
-      setApiDetails(null)
-    }
-  }
+  const apiStatus = systemHealth?.status || 'loading'
 
   const handleLaunchSimulation = () => {
     if (simulationStatus === 'running') return
@@ -231,7 +222,7 @@ function MainLayout() {
         `CyberFusion AI Security Operations Center Executive Report\n`,
         `=======================================================\n`,
         `Generated: ${new Date().toLocaleString()}\n`,
-        `Organization Risk Score: 72 (Medium)\n`,
+        `Organization Risk Score: ${dashboardSummary?.organization_risk || 32}\n`,
         `Active Critical Threats: ${incidents.filter(i => i.severity === 'critical' && i.status === 'active').length}\n`,
         `Active Open Anomalies: ${incidents.filter(i => i.status === 'active' || i.status === 'investigating').length}\n`,
         `Indicators of Compromise Matched: 412 Matches\n`,
@@ -249,27 +240,64 @@ function MainLayout() {
   }
 
   useEffect(() => {
-    verifyBackendHealth()
-    const timer = setInterval(verifyBackendHealth, 15000) // Poll health every 15s
-    return () => clearInterval(timer)
+    // Initial fetch of all dashboard and incidents details
+    fetchSystemHealth()
+    fetchDashboardSummary()
+    fetchRecentIncidents()
+    fetchThreatFeed()
+    fetchIncidents()
+    
+    const healthTimer = setInterval(fetchSystemHealth, 15000)
+    const metricsTimer = setInterval(() => {
+      fetchDashboardSummary()
+      fetchRecentIncidents()
+      fetchThreatFeed()
+    }, 30000) // refresh metrics every 30s
+    
+    return () => {
+      clearInterval(healthTimer)
+      clearInterval(metricsTimer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Filter incidents based on active search bar text and severity tab selection
   const filteredIncidents = incidents.filter((inc) => {
-    const matchesSearch =
-      inc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inc.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inc.source.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inc.category.toLowerCase().includes(searchQuery.toLowerCase())
-      
+    const titleMatch = inc.title?.toLowerCase() || ''
+    const queryMatch = searchQuery.toLowerCase()
+    const matchesSearch = titleMatch.includes(queryMatch)
     const matchesSeverity = severityFilter === 'all' || inc.severity === severityFilter
     
     return matchesSearch && matchesSeverity
   })
 
-  // Core metrics aggregations
-  const criticalCount = incidents.filter(i => i.severity === 'critical' && i.status === 'active').length
-  const activeCount = incidents.filter(i => i.status === 'active' || i.status === 'investigating').length
+  // Skeleton placeholders
+  const KpiSkeleton = () => (
+    <div className="relative bg-[#12182A]/90 border border-border-custom/40 p-5 rounded-2xl min-h-[145px] flex flex-col justify-between animate-pulse">
+      <div className="flex items-start justify-between">
+        <div className="h-3 w-24 bg-slate-800 rounded"></div>
+        <div className="h-8 w-8 rounded-xl bg-slate-800"></div>
+      </div>
+      <div className="mt-4 flex items-end justify-between">
+        <div className="space-y-2 flex-1">
+          <div className="h-6 w-16 bg-slate-800 rounded"></div>
+          <div className="h-3 w-12 bg-slate-800 rounded"></div>
+        </div>
+        <div className="h-8 w-16 bg-slate-800 rounded-lg"></div>
+      </div>
+    </div>
+  )
+
+  const TableRowSkeleton = () => (
+    <TableRow className="animate-pulse">
+      <TableCell><div className="h-4 bg-slate-800 rounded w-16"></div></TableCell>
+      <TableCell><div className="h-4 bg-slate-800 rounded w-48"></div></TableCell>
+      <TableCell><div className="h-5 bg-slate-800 rounded-full w-12"></div></TableCell>
+      <TableCell><div className="h-4 bg-slate-800 rounded w-24"></div></TableCell>
+      <TableCell><div className="h-4 bg-slate-800 rounded w-20"></div></TableCell>
+      <TableCell className="text-right"><div className="h-8 bg-slate-800 rounded-lg w-20 ml-auto"></div></TableCell>
+    </TableRow>
+  )
 
   return (
     <div className="min-h-screen bg-bg-primary text-slate-100 flex font-sans overflow-hidden">
@@ -289,6 +317,25 @@ function MainLayout() {
           {/* TAB 1: OVERVIEW DASHBOARD */}
           {activeTab === 'overview' && (
             <div className="space-y-10 animate-in fade-in duration-300">
+              
+              {/* API ERROR BANNER */}
+              {error && (
+                <div className="p-4 rounded-xl border bg-danger/10 border-danger/30 text-danger font-semibold flex items-center justify-between animate-in fade-in slide-in-from-top-4 duration-300">
+                  <div className="flex items-center space-x-3">
+                    <AlertTriangle className="h-5 w-5 shrink-0 animate-bounce" />
+                    <span className="text-sm font-mono">
+                      OPERATION TELEMETRY ERROR: {error}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => useUIStore.getState().clearError()}
+                    className="text-xs font-mono uppercase bg-[#12182A] hover:bg-[#1E293B] text-slate-300 border border-border-custom px-3 py-1.5 rounded-lg cursor-pointer transition"
+                  >
+                    Clear Context
+                  </button>
+                </div>
+              )}
+
               {/* Simulation Status Toast Banner */}
               {simulationStatus !== 'idle' && (
                 <div className={`p-4 rounded-xl border flex items-center justify-between transition-all duration-300 animate-pulse ${
@@ -322,7 +369,7 @@ function MainLayout() {
                   <div className="space-y-3">
                     <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-warning/5 border border-warning/20 text-warning text-xs font-mono select-none">
                       <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
-                      <span>Organization Risk Index: 72 (Medium Risk)</span>
+                      <span>Organization Risk Index: {dashboardSummary?.organization_risk || 32} ({dashboardSummary && dashboardSummary.organization_risk > 50 ? 'Medium Risk' : 'Low Risk'})</span>
                     </div>
                     <h1 className="text-3xl font-extrabold tracking-tight text-white m-0">
                       Good Morning, Analyst
@@ -330,10 +377,12 @@ function MainLayout() {
                     <p className="text-slate-400 text-xs flex items-center gap-2 font-medium font-mono">
                       <span>Telemetry active •</span>
                       <span>Last updated: Just now •</span>
-                      <span className="text-danger flex items-center gap-1.5">
-                        <span className="h-1.5 w-1.5 rounded-full bg-danger animate-pulse shrink-0" />
-                        <span>3 critical priority logs require isolation playbook</span>
-                      </span>
+                      {incidents.filter(i => i.severity === 'critical' && i.status === 'active').length > 0 && (
+                        <span className="text-danger flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-danger animate-pulse shrink-0" />
+                          <span>{incidents.filter(i => i.severity === 'critical' && i.status === 'active').length} critical threats require containment playbook</span>
+                        </span>
+                      )}
                     </p>
                   </div>
 
@@ -367,77 +416,87 @@ function MainLayout() {
                 </div>
               </div>
 
-              {/* 2. 6 KPI CARDS (using grid-cols-12) */}
+              {/* 2. 6 KPI CARDS */}
               <div className="grid grid-cols-12 gap-6">
-                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
-                  <PremiumKpiCard
-                    title="Organization Risk"
-                    value={criticalCount === 0 ? "32" : "72"}
-                    trend="+2.4%"
-                    trendType="increase"
-                    icon={<AlertTriangle className="h-5 w-5" />}
-                    tooltip="Consolidated threat index factor based on active machine vulnerabilities (Medium Risk)."
-                    color="warning"
-                  />
-                </div>
-                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
-                  <PremiumKpiCard
-                    title="Critical Incidents"
-                    value={criticalCount}
-                    trend={criticalCount > 0 ? `+${criticalCount - 1} this hr` : "Stable"}
-                    trendType={criticalCount > 0 ? "increase" : "stable"}
-                    icon={<FlameKindling className="h-5 w-5" />}
-                    tooltip="Severely anomalous machine actions requiring immediate containment playbooks."
-                    color="critical"
-                  />
-                </div>
-                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
-                  <PremiumKpiCard
-                    title="Open Incidents"
-                    value={activeCount}
-                    trend="-2 yesterday"
-                    trendType="decrease"
-                    icon={<Shield className="h-5 w-5" />}
-                    tooltip="Total security alerts currently actively investigated by SOC operators."
-                    color="info"
-                  />
-                </div>
-                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
-                  <PremiumKpiCard
-                    title="IOC Matches"
-                    value="412"
-                    trend="+14%"
-                    trendType="increase"
-                    icon={<Target className="h-5 w-5" />}
-                    tooltip="Correlated indicator signatures matched across proxy & database ports."
-                    color="warning"
-                  />
-                </div>
-                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
-                  <PremiumKpiCard
-                    title="Threat Feed Health"
-                    value="99.8%"
-                    trend="Stable"
-                    trendType="stable"
-                    icon={<Radio className="h-5 w-5" />}
-                    tooltip="Operational rate of active ingested global security intelligence feeds."
-                    color="success"
-                  />
-                </div>
-                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
-                  <PremiumKpiCard
-                    title="AI Confidence"
-                    value="94.2%"
-                    trend="+1.2%"
-                    trendType="increase"
-                    icon={<Brain className="h-5 w-5" />}
-                    tooltip="Autonomous classifier precision rate mapping historical telemetry nodes."
-                    color="accent"
-                  />
-                </div>
+                {!dashboardSummary ? (
+                  Array.from({ length: 6 }).map((_, idx) => (
+                    <div key={idx} className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
+                      <KpiSkeleton />
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
+                      <PremiumKpiCard
+                        title="Organization Risk"
+                        value={dashboardSummary.organization_risk}
+                        trend="+2.4%"
+                        trendType="increase"
+                        icon={<AlertTriangle className="h-5 w-5" />}
+                        tooltip="Consolidated threat index factor based on active machine vulnerabilities."
+                        color="warning"
+                      />
+                    </div>
+                    <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
+                      <PremiumKpiCard
+                        title="Critical Incidents"
+                        value={dashboardSummary.critical_incidents}
+                        trend="Stable"
+                        trendType="stable"
+                        icon={<FlameKindling className="h-5 w-5" />}
+                        tooltip="Severely anomalous machine actions requiring immediate containment playbooks."
+                        color="critical"
+                      />
+                    </div>
+                    <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
+                      <PremiumKpiCard
+                        title="Open Incidents"
+                        value={dashboardSummary.open_incidents}
+                        trend="-2 yesterday"
+                        trendType="decrease"
+                        icon={<Shield className="h-5 w-5" />}
+                        tooltip="Total security alerts currently actively investigated by SOC operators."
+                        color="info"
+                      />
+                    </div>
+                    <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
+                      <PremiumKpiCard
+                        title="IOC Matches"
+                        value={dashboardSummary.ioc_matches}
+                        trend="+14%"
+                        trendType="increase"
+                        icon={<Target className="h-5 w-5" />}
+                        tooltip="Correlated indicator signatures matched across proxy & database ports."
+                        color="warning"
+                      />
+                    </div>
+                    <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
+                      <PremiumKpiCard
+                        title="Threat Feed Health"
+                        value={dashboardSummary.threat_feed_health}
+                        trend="Stable"
+                        trendType="stable"
+                        icon={<Radio className="h-5 w-5" />}
+                        tooltip="Operational rate of active ingested global security intelligence feeds."
+                        color="success"
+                      />
+                    </div>
+                    <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-2">
+                      <PremiumKpiCard
+                        title="AI Confidence"
+                        value={dashboardSummary.ai_confidence}
+                        trend="+1.2%"
+                        trendType="increase"
+                        icon={<Brain className="h-5 w-5" />}
+                        tooltip="Autonomous classifier precision rate mapping historical telemetry nodes."
+                        color="accent"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
-              {/* 3. ROW 1: Attack Path Timeline & AI Analyst Summary */}
+              {/* 3. ROW 1: Attack Path & AI Analyst */}
               <div className="grid grid-cols-12 gap-6">
                 <div className="col-span-12 lg:col-span-7 flex flex-col">
                   <AttackTimeline />
@@ -447,14 +506,14 @@ function MainLayout() {
                 </div>
               </div>
 
-              {/* 4. ROW 2: MITRE ATT&CK Matrix Mapping */}
+              {/* 4. ROW 2: MITRE ATT&CK Matrix */}
               <div className="grid grid-cols-12 gap-6">
                 <div className="col-span-12">
                   <MitreAttackMatrix />
                 </div>
               </div>
 
-              {/* 5. ROW 3: Threat Intelligence Feed & Recent Reports */}
+              {/* 5. ROW 3: Threat Ingest & Reports */}
               <div className="grid grid-cols-12 gap-6">
                 <div className="col-span-12 lg:col-span-6">
                   <ThreatIntelFeed />
@@ -464,7 +523,7 @@ function MainLayout() {
                 </div>
               </div>
 
-              {/* 6. ROW 4: Recent Actionable Incidents Table */}
+              {/* 6. ROW 4: Actionable Incidents Table */}
               <div className="grid grid-cols-12 gap-6">
                 <div className="col-span-12">
                   <div className="p-6 rounded-2xl bg-[#12182A] border border-border-custom/80 shadow-[0_8px_30px_rgb(0,0,0,0.25)] space-y-4">
@@ -490,32 +549,44 @@ function MainLayout() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {incidents.slice(0, 3).map((inc) => (
-                          <TableRow
-                            key={inc.id}
-                            onClick={() => selectIncident(inc)}
-                            className="cursor-pointer transition-colors duration-150 hover:bg-[#1E293B]/30"
-                          >
-                            <TableCell className="font-mono text-accent font-semibold">{inc.id}</TableCell>
-                            <TableCell className="font-semibold text-white">{inc.title}</TableCell>
-                            <TableCell>
-                              <Badge variant={inc.severity} type="severity">
-                                {inc.severity}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-mono text-slate-400">{inc.source}</TableCell>
-                            <TableCell>{inc.category}</TableCell>
-                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                              {inc.status === 'active' || inc.status === 'investigating' ? (
-                                <Button variant="primary" size="sm" onClick={() => mitigateIncident(inc.id)} className="font-mono text-xs px-3.5 py-1.5 rounded-lg">
-                                  Mitigate
-                                </Button>
-                              ) : (
-                                <Badge variant="success" size="sm">Mitigated</Badge>
-                              )}
+                        {isLoading && incidents.length === 0 ? (
+                          Array.from({ length: 3 }).map((_, idx) => (
+                            <TableRowSkeleton key={idx} />
+                          ))
+                        ) : incidents.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center py-8 text-slate-500 font-mono text-xs">
+                              No active incidents recorded in central directory.
                             </TableCell>
                           </TableRow>
-                        ))}
+                        ) : (
+                          incidents.slice(0, 3).map((inc) => (
+                            <TableRow
+                              key={inc.id}
+                              onClick={() => selectIncident(inc)}
+                              className="cursor-pointer transition-colors duration-150 hover:bg-[#1E293B]/30"
+                            >
+                              <TableCell className="font-mono text-accent font-semibold">{inc.id.slice(0, 8)}</TableCell>
+                              <TableCell className="font-semibold text-white">{inc.title}</TableCell>
+                              <TableCell>
+                                <Badge variant={inc.severity} type="severity">
+                                  {inc.severity}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="font-mono text-slate-400">{inc.source}</TableCell>
+                              <TableCell>{inc.category || 'System'}</TableCell>
+                              <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                {inc.status === 'active' || inc.status === 'investigating' ? (
+                                  <Button variant="primary" size="sm" onClick={() => mitigateIncident(inc.id)} className="font-mono text-xs px-3.5 py-1.5 rounded-lg">
+                                    Mitigate
+                                  </Button>
+                                ) : (
+                                  <Badge variant="success" size="sm">Mitigated</Badge>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
                       </TableBody>
                     </Table>
                   </div>
@@ -644,15 +715,15 @@ function MainLayout() {
                       <div className="space-y-2 mt-4 text-xs font-mono text-slate-400">
                         <div className="flex justify-between border-b border-border-custom/40 pb-2">
                           <span>Service Name</span>
-                          <span className="text-white">{apiDetails?.service}</span>
+                          <span className="text-white">CyberFusion AI API</span>
                         </div>
                         <div className="flex justify-between border-b border-border-custom/40 pb-2">
                           <span>Version</span>
-                          <span className="text-accent">{apiDetails?.version}</span>
+                          <span className="text-accent">1.0.0</span>
                         </div>
                         <div className="flex justify-between pb-2">
                           <span>API Endpoint</span>
-                          <span className="text-white">/health</span>
+                          <span className="text-white">/dashboard/system-health</span>
                         </div>
                       </div>
                     ) : (
@@ -662,7 +733,7 @@ function MainLayout() {
                     )}
                   </div>
                   
-                  <Button variant="secondary" size="sm" onClick={verifyBackendHealth}>
+                  <Button variant="secondary" size="sm" onClick={fetchSystemHealth}>
                     Re-Verify Connection
                   </Button>
                 </Card>
@@ -675,7 +746,9 @@ function MainLayout() {
                         <Layers className="h-5 w-5 text-indigo-400" />
                         <h3 className="font-bold text-white text-sm m-0">PostgreSQL database</h3>
                       </div>
-                      <Badge variant="info">Day 1 Setup</Badge>
+                      <Badge variant={systemHealth?.db_connected ? 'success' : 'critical'}>
+                        {systemHealth?.db_connected ? 'Connected' : 'Offline'}
+                      </Badge>
                     </div>
                     <p className="text-xs text-slate-400 mt-4 leading-relaxed">
                       PostgreSQL database client has been successfully configured using SQLAlchemy engine drivers.

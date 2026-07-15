@@ -1,15 +1,47 @@
 import { create } from 'zustand'
+import { apiRequest } from '../utils/api'
 
 export interface Incident {
   id: string
   title: string
   severity: 'critical' | 'warning' | 'info' | 'success'
   status: 'active' | 'investigating' | 'mitigated' | 'resolved'
-  source: string
-  category: string
-  timestamp: string
+  source_ip?: string
+  destination_ip?: string
+  mitre_technique?: string
+  assigned_user_id?: number
+  category?: string
   description: string
   remediation?: string
+  created_at?: string
+  updated_at?: string
+  // Support legacy UI accessors
+  source?: string
+  timestamp?: string
+}
+
+export interface DashboardSummary {
+  organization_risk: number
+  critical_incidents: number
+  open_incidents: number
+  ioc_matches: number
+  threat_feed_health: string
+  ai_confidence: string
+}
+
+export interface SystemHealth {
+  status: 'healthy' | 'unhealthy' | 'loading'
+  db_connected: boolean
+  uptime_seconds: number
+}
+
+export interface ThreatFeedItem {
+  id: string
+  source: string
+  indicator: string
+  severity: 'critical' | 'warning' | 'info'
+  timestamp: string
+  status: string
 }
 
 interface UIState {
@@ -20,6 +52,12 @@ interface UIState {
   isDetailDrawerOpen: boolean
   isNotificationOpen: boolean
   incidents: Incident[]
+  dashboardSummary: DashboardSummary | null
+  recentIncidents: Incident[]
+  threatFeed: ThreatFeedItem[]
+  systemHealth: SystemHealth | null
+  isLoading: boolean
+  error: string | null
   
   toggleSidebar: () => void
   setSidebarOpen: (open: boolean) => void
@@ -29,76 +67,37 @@ interface UIState {
   setDetailDrawerOpen: (open: boolean) => void
   toggleNotificationPanel: () => void
   closeNotificationPanel: () => void
-  mitigateIncident: (id: string) => void
+  fetchDashboardSummary: () => Promise<void>
+  fetchRecentIncidents: () => Promise<void>
+  fetchThreatFeed: () => Promise<void>
+  fetchSystemHealth: () => Promise<void>
+  fetchIncidents: () => Promise<void>
+  mitigateIncident: (id: string) => Promise<void>
+  clearError: () => void
 }
 
-const mockIncidents: Incident[] = [
-  {
-    id: 'INC-2026-001',
-    title: 'Adversary Bruteforce on DB Node',
-    severity: 'critical',
-    status: 'active',
-    source: '10.0.4.82',
-    category: 'Authentication',
-    timestamp: '19:42:15',
-    description: 'Multiple failed ssh attempts detected on core postgres server from external IP block 198.51.100.12. Critical database credentials at risk.',
-    remediation: 'Apply firewall drop rule for CIDR block 198.51.100.0/24 and force credentials cycle for the postgres root user.'
-  },
-  {
-    id: 'INC-2026-002',
-    title: 'Anomalous Data Exfiltration DNS Queries',
-    severity: 'warning',
-    status: 'investigating',
-    source: '10.0.12.14',
-    category: 'Data Exfiltration',
-    timestamp: '19:35:48',
-    description: 'High frequency of custom sub-domain queries matching encryption formats pointing to an unverified external DNS server.',
-    remediation: 'Quarantine server 10.0.12.14 and route DNS inquiries through standard internal server validators.'
-  },
-  {
-    id: 'INC-2026-003',
-    title: 'Phishing Campaign Link Executed',
-    severity: 'critical',
-    status: 'active',
-    source: 'Workstation-HR-04',
-    category: 'Enduser Infiltration',
-    timestamp: '19:12:03',
-    description: 'HR Workstation user opened custom email hyperlink download executing powershell runner script with active memory injection.',
-    remediation: 'Revoke active AD sessions for employee ID HR-04, disconnect workstation HR-04 from company VPN.'
-  },
-  {
-    id: 'INC-2026-004',
-    title: 'AWS Security Group Wildcard Ingress',
-    severity: 'info',
-    status: 'mitigated',
-    source: 'Cloud-Prod-01',
-    category: 'Compliance',
-    timestamp: '18:55:00',
-    description: 'AWS security group changed dynamically from console exposing database ingress socket to wildcard 0.0.0.0/0.',
-    remediation: 'Reverted security group ingress properties using AWS Config automated terraform mitigation script.'
-  },
-  {
-    id: 'INC-2026-005',
-    title: 'Kubernetes Container Root Drift Detected',
-    severity: 'warning',
-    status: 'resolved',
-    source: 'K8s-Cluster-Node-02',
-    category: 'Container Security',
-    timestamp: '18:40:12',
-    description: 'Container binary hashes mismatched against docker repository manifest indicating file write inside read-only layers.',
-    remediation: 'Restructured Kubernetes deployment setting ReadOnlyRootFilesystem=true. Redeployed deployment pods.'
-  }
-]
+const mapIncident = (inc: any): Incident => ({
+  ...inc,
+  source: inc.source_ip || inc.source || 'Internal',
+  timestamp: inc.created_at ? new Date(inc.created_at).toLocaleTimeString('en-US', { hour12: false }) : 'Unknown'
+})
 
-export const useUIStore = create<UIState>((set) => ({
+export const useUIStore = create<UIState>((set, get) => ({
   sidebarOpen: true,
   activeTab: 'overview',
   searchQuery: '',
   selectedIncident: null,
   isDetailDrawerOpen: false,
   isNotificationOpen: false,
-  incidents: mockIncidents,
+  incidents: [],
+  dashboardSummary: null,
+  recentIncidents: [],
+  threatFeed: [],
+  systemHealth: null,
+  isLoading: false,
+  error: null,
   
+  clearError: () => set({ error: null }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setActiveTab: (tab) => set({ activeTab: tab }),
@@ -107,13 +106,92 @@ export const useUIStore = create<UIState>((set) => ({
   setDetailDrawerOpen: (open) => set((state) => ({ isDetailDrawerOpen: open, selectedIncident: open ? state.selectedIncident : null })),
   toggleNotificationPanel: () => set((state) => ({ isNotificationOpen: !state.isNotificationOpen })),
   closeNotificationPanel: () => set({ isNotificationOpen: false }),
-  mitigateIncident: (id) => set((state) => ({
-    incidents: state.incidents.map((inc) =>
-      inc.id === id ? { ...inc, status: 'mitigated', severity: 'success' } : inc
-    ),
-    // Update active details drawer view if open
-    selectedIncident: state.selectedIncident && state.selectedIncident.id === id
-      ? { ...state.selectedIncident, status: 'mitigated', severity: 'success' }
-      : state.selectedIncident
-  }))
+
+  fetchDashboardSummary: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const summary = await apiRequest('/dashboard/summary')
+      set({ dashboardSummary: summary })
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to fetch dashboard summary' })
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  fetchRecentIncidents: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const list = await apiRequest('/dashboard/recent-incidents')
+      set({ recentIncidents: list.map(mapIncident) })
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to fetch recent incidents' })
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  fetchThreatFeed: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const feed = await apiRequest('/dashboard/threat-feed')
+      set({ threatFeed: feed })
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to fetch threat feed' })
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  fetchSystemHealth: async () => {
+    try {
+      const health = await apiRequest('/dashboard/system-health')
+      set({ systemHealth: health })
+    } catch (err: any) {
+      set({ systemHealth: { status: 'unhealthy', db_connected: false, uptime_seconds: 0 } })
+    }
+  },
+
+  fetchIncidents: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const list = await apiRequest('/incidents')
+      set({ incidents: list.map(mapIncident) })
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to fetch incidents list' })
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  mitigateIncident: async (id) => {
+    set({ error: null })
+    try {
+      await apiRequest(`/incidents/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          status: 'mitigated',
+          severity: 'success'
+        })
+      })
+      
+      await get().fetchIncidents()
+      await get().fetchRecentIncidents()
+      await get().fetchDashboardSummary()
+      
+      const { selectedIncident } = get()
+      if (selectedIncident && selectedIncident.id === id) {
+        set({
+          selectedIncident: {
+            ...selectedIncident,
+            status: 'mitigated',
+            severity: 'success'
+          }
+        })
+      }
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to mitigate incident' })
+    }
+  }
 }))
+
