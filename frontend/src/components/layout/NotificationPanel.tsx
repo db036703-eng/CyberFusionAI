@@ -4,10 +4,22 @@ import { X, ShieldAlert, CircleAlert } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
 import { Badge } from '../ui/Badge'
 
+const mapSeverityToBadgeVariant = (severity: string): 'critical' | 'warning' | 'info' | 'default' => {
+  const s = severity.toLowerCase()
+  if (s === 'critical') return 'critical'
+  if (s === 'high') return 'warning'
+  if (s === 'medium') return 'info'
+  if (s === 'low') return 'default'
+  return 'default'
+}
+
 export const NotificationPanel: React.FC = () => {
   const { isNotificationOpen, closeNotificationPanel, incidents, selectIncident } = useUIStore()
   
-  const activeIncidents = incidents.filter(inc => inc.status === 'active' || inc.status === 'investigating')
+  const activeIncidents = incidents.filter(inc => {
+    const status = inc.status?.toLowerCase()
+    return status === 'new' || status === 'active' || status === 'investigating'
+  })
   
   return (
     <AnimatePresence>
@@ -44,15 +56,15 @@ export const NotificationPanel: React.FC = () => {
                     className="p-4 hover:bg-bg-primary/25 cursor-pointer transition flex items-start space-x-3"
                   >
                     <div className={`mt-0.5 p-1 rounded-lg ${
-                      inc.severity === 'critical' ? 'bg-critical-custom/10 text-critical-custom' : 'bg-warning-custom/10 text-warning-custom'
+                      inc.severity.toLowerCase() === 'critical' ? 'bg-critical-custom/10 text-critical-custom' : 'bg-warning-custom/10 text-warning-custom'
                     }`}>
-                      {inc.severity === 'critical' ? <ShieldAlert className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}
+                      {inc.severity.toLowerCase() === 'critical' ? <ShieldAlert className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}
                     </div>
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-white truncate">{inc.title}</span>
-                        <Badge variant={inc.severity} size="sm" type="severity">
+                        <Badge variant={mapSeverityToBadgeVariant(inc.severity)} size="sm" type="severity">
                           {inc.severity}
                         </Badge>
                       </div>

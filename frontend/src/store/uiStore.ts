@@ -4,12 +4,18 @@ import { apiRequest } from '../utils/api'
 export interface Incident {
   id: string
   title: string
-  severity: 'critical' | 'warning' | 'info' | 'success'
-  status: 'active' | 'investigating' | 'mitigated' | 'resolved'
+  severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'critical' | 'warning' | 'info' | 'success'
+  status: 'New' | 'Investigating' | 'Mitigated' | 'Resolved' | 'active' | 'investigating' | 'mitigated' | 'resolved'
   source_ip?: string
   destination_ip?: string
   mitre_technique?: string
   assigned_user_id?: number
+  assigned_user?: {
+    id: number
+    username: string
+    email: string
+    role: string
+  }
   category?: string
   description: string
   remediation?: string
@@ -59,6 +65,15 @@ interface UIState {
   isLoading: boolean
   error: string | null
   
+  // Pagination State
+  totalIncidents: number
+  totalPages: number
+  currentPage: number
+  incidentsPerPage: number
+  
+  // Analysts list
+  analysts: any[]
+  
   toggleSidebar: () => void
   setSidebarOpen: (open: boolean) => void
   setActiveTab: (tab: string) => void
@@ -71,7 +86,11 @@ interface UIState {
   fetchRecentIncidents: () => Promise<void>
   fetchThreatFeed: () => Promise<void>
   fetchSystemHealth: () => Promise<void>
-  fetchIncidents: () => Promise<void>
+  fetchIncidents: (page?: number, limit?: number, filters?: { severity?: string, status?: string, category?: string, search?: string }) => Promise<void>
+  fetchAnalysts: () => Promise<void>
+  createIncident: (incident: any) => Promise<void>
+  updateIncident: (id: string, incident: any) => Promise<void>
+  deleteIncident: (id: string) => Promise<void>
   mitigateIncident: (id: string) => Promise<void>
   clearError: () => void
 }
@@ -79,7 +98,7 @@ interface UIState {
 const mapIncident = (inc: any): Incident => ({
   ...inc,
   source: inc.source_ip || inc.source || 'Internal',
-  timestamp: inc.created_at ? new Date(inc.created_at).toLocaleTimeString('en-US', { hour12: false }) : 'Unknown'
+  timestamp: inc.created_at ? new Date(inc.created_at).toLocaleString() : 'Unknown'
 })
 
 export const useUIStore = create<UIState>((set, get) => ({
@@ -96,6 +115,15 @@ export const useUIStore = create<UIState>((set, get) => ({
   systemHealth: null,
   isLoading: false,
   error: null,
+  
+  // Pagination Defaults
+  totalIncidents: 0,
+  totalPages: 1,
+  currentPage: 1,
+  incidentsPerPage: 10,
+  
+  // Analysts default
+  analysts: [],
   
   clearError: () => set({ error: null }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
@@ -152,13 +180,115 @@ export const useUIStore = create<UIState>((set, get) => ({
     }
   },
 
-  fetchIncidents: async () => {
+  fetchIncidents: async (page = 1, limit = 10, filters = {}) => {
     set({ isLoading: true, error: null })
     try {
-      const list = await apiRequest('/incidents')
-      set({ incidents: list.map(mapIncident) })
+      const params = new URLSearchParams()
+      params.append('page', page.toString())
+      params.append('limit', limit.toString())
+      
+      if (filters.severity && filters.severity !== 'all') {
+        params.append('severity', filters.severity)
+      }
+      if (filters.status && filters.status !== 'all') {
+        params.append('status', filters.status)
+      }
+      if (filters.category && filters.category !== 'all') {
+        params.append('category', filters.category)
+      }
+      if (filters.search) {
+        params.append('search', filters.search)
+      }
+      
+      const res = await apiRequest(`/incidents?${params.toString()}`)
+      set({
+        incidents: res.items.map(mapIncident),
+        totalIncidents: res.total,
+        totalPages: res.pages,
+        currentPage: res.page,
+        incidentsPerPage: res.limit
+      })
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch incidents list' })
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  fetchAnalysts: async () => {
+    try {
+      const list = await apiRequest('/incidents/analysts')
+      set({ analysts: list })
+    } catch (err: any) {
+      console.error('Failed to fetch analysts:', err)
+    }
+  },
+
+  createIncident: async (incident) => {
+    set({ isLoading: true, error: null })
+    try {
+      await apiRequest('/incidents', {
+        method: 'POST',
+        body: JSON.stringify(incident)
+      })
+      await get().fetchIncidents(get().currentPage, get().incidentsPerPage)
+      await get().fetchRecentIncidents()
+      await get().fetchDashboardSummary()
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to create incident' })
+      throw err
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  updateIncident: async (id, incident) => {
+    set({ isLoading: true, error: null })
+    try {
+      const updated = await apiRequest(`/incidents/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(incident)
+      })
+      
+      await get().fetchIncidents(get().currentPage, get().incidentsPerPage)
+      await get().fetchRecentIncidents()
+      await get().fetchDashboardSummary()
+      
+      const { selectedIncident } = get()
+      if (selectedIncident && selectedIncident.id === id) {
+        set({ selectedIncident: mapIncident(updated) })
+      }
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to update incident' })
+      throw err
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  deleteIncident: async (id) => {
+    set({ isLoading: true, error: null })
+    try {
+      await apiRequest(`/incidents/${id}`, {
+        method: 'DELETE'
+      })
+      
+      // If we deleted the last item on the page, go to the previous page
+      const newPage = get().incidents.length === 1 && get().currentPage > 1
+        ? get().currentPage - 1 
+        : get().currentPage;
+        
+      await get().fetchIncidents(newPage, get().incidentsPerPage)
+      await get().fetchRecentIncidents()
+      await get().fetchDashboardSummary()
+      
+      const { selectedIncident } = get()
+      if (selectedIncident && selectedIncident.id === id) {
+        set({ selectedIncident: null, isDetailDrawerOpen: false })
+      }
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to delete incident' })
+      throw err
     } finally {
       set({ isLoading: false })
     }
@@ -167,31 +297,23 @@ export const useUIStore = create<UIState>((set, get) => ({
   mitigateIncident: async (id) => {
     set({ error: null })
     try {
-      await apiRequest(`/incidents/${id}`, {
+      const updated = await apiRequest(`/incidents/${id}`, {
         method: 'PUT',
         body: JSON.stringify({
-          status: 'mitigated',
-          severity: 'success'
+          status: 'Mitigated'
         })
       })
       
-      await get().fetchIncidents()
+      await get().fetchIncidents(get().currentPage, get().incidentsPerPage)
       await get().fetchRecentIncidents()
       await get().fetchDashboardSummary()
       
       const { selectedIncident } = get()
       if (selectedIncident && selectedIncident.id === id) {
-        set({
-          selectedIncident: {
-            ...selectedIncident,
-            status: 'mitigated',
-            severity: 'success'
-          }
-        })
+        set({ selectedIncident: mapIncident(updated) })
       }
     } catch (err: any) {
       set({ error: err.message || 'Failed to mitigate incident' })
     }
   }
 }))
-

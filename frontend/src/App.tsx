@@ -27,6 +27,7 @@ import { Drawer } from './components/ui/Drawer'
 import { EmptyState } from './components/ui/EmptyState'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/Table'
 import { useUIStore } from './store/uiStore'
+import { Modal } from './components/ui/Modal'
 import { LoginPage } from './components/pages/LoginPage'
 import { RegisterPage } from './components/pages/RegisterPage'
 import { ForgotPasswordPage } from './components/pages/ForgotPasswordPage'
@@ -170,13 +171,30 @@ const PremiumKpiCard: React.FC<PremiumKpiCardProps> = ({
   )
 }
 
+const mapSeverityToBadgeVariant = (severity: string): 'critical' | 'warning' | 'info' | 'default' => {
+  const s = severity.toLowerCase()
+  if (s === 'critical') return 'critical'
+  if (s === 'high') return 'warning'
+  if (s === 'medium') return 'info'
+  if (s === 'low') return 'default'
+  return 'default'
+}
+
+const mapStatusToBadgeVariant = (status: string): 'default' | 'warning' | 'info' | 'success' => {
+  const s = status.toLowerCase()
+  if (s === 'new') return 'default'
+  if (s === 'investigating') return 'warning'
+  if (s === 'mitigated') return 'info'
+  if (s === 'resolved') return 'success'
+  return 'default'
+}
+
 function MainLayout() {
   const [simulationStatus, setSimulationStatus] = useState<'idle' | 'running' | 'completed'>('idle')
   const [reportProgress, setReportProgress] = useState<'idle' | 'generating' | 'done'>('idle')
 
   const {
     activeTab,
-    searchQuery,
     selectedIncident,
     isDetailDrawerOpen,
     incidents,
@@ -193,11 +211,55 @@ function MainLayout() {
     fetchRecentIncidents,
     fetchThreatFeed,
     fetchSystemHealth,
-    fetchIncidents
+    fetchIncidents,
+    
+    // Pagination & CRUD
+    totalIncidents,
+    totalPages,
+    analysts,
+    fetchAnalysts,
+    createIncident,
+    updateIncident,
+    deleteIncident
   } = useUIStore()
   
-  // Incidents Filter (by severity)
-  const [severityFilter, setSeverityFilter] = useState<string>('all')
+  // Incidents Filter state
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(10)
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [severityFilter, setSeverityFilter] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  // Create Modal State
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [createForm, setCreateForm] = useState({
+    title: '',
+    description: '',
+    severity: 'Low',
+    status: 'New',
+    category: 'Authentication',
+    source_ip: '',
+    destination_ip: '',
+    mitre_technique: '',
+    assigned_user_id: '',
+    remediation: ''
+  })
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [successNotification, setSuccessNotification] = useState<string | null>(null)
+
+  // Drawer Edit Form State
+  const [isEditing, setIsEditing] = useState(false)
+  const [editForm, setEditForm] = useState({
+    status: 'New',
+    severity: 'Low',
+    assigned_user_id: '',
+    remediation: ''
+  })
+
+  // Delete Confirmation State
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false)
 
   const apiStatus = systemHealth?.status || 'loading'
 
@@ -239,37 +301,147 @@ function MainLayout() {
     }, 2000)
   }
 
+  // Load analysts on mount
   useEffect(() => {
-    // Initial fetch of all dashboard and incidents details
+    fetchAnalysts()
+  }, [fetchAnalysts])
+
+  // Debounce search term
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchTerm)
+      setPage(1) // reset page on search
+    }, 300)
+    return () => clearTimeout(handler)
+  }, [searchTerm])
+
+  // Sync edit form with selected incident
+  useEffect(() => {
+    if (selectedIncident) {
+      setEditForm({
+        status: selectedIncident.status,
+        severity: selectedIncident.severity,
+        assigned_user_id: selectedIncident.assigned_user_id ? selectedIncident.assigned_user_id.toString() : '',
+        remediation: selectedIncident.remediation || ''
+      })
+      setIsEditing(false)
+    }
+  }, [selectedIncident])
+
+  // Fetch incidents on page/filter change
+  useEffect(() => {
+    fetchIncidents(page, limit, {
+      severity: severityFilter,
+      status: statusFilter,
+      category: categoryFilter,
+      search: debouncedSearch
+    })
+  }, [page, limit, severityFilter, statusFilter, categoryFilter, debouncedSearch, fetchIncidents])
+
+  // Polling for metrics
+  useEffect(() => {
     fetchSystemHealth()
     fetchDashboardSummary()
     fetchRecentIncidents()
     fetchThreatFeed()
-    fetchIncidents()
     
     const healthTimer = setInterval(fetchSystemHealth, 15000)
     const metricsTimer = setInterval(() => {
       fetchDashboardSummary()
       fetchRecentIncidents()
       fetchThreatFeed()
-    }, 30000) // refresh metrics every 30s
+    }, 30000)
     
     return () => {
       clearInterval(healthTimer)
       clearInterval(metricsTimer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [fetchSystemHealth, fetchDashboardSummary, fetchRecentIncidents, fetchThreatFeed])
 
-  // Filter incidents based on active search bar text and severity tab selection
-  const filteredIncidents = incidents.filter((inc) => {
-    const titleMatch = inc.title?.toLowerCase() || ''
-    const queryMatch = searchQuery.toLowerCase()
-    const matchesSearch = titleMatch.includes(queryMatch)
-    const matchesSeverity = severityFilter === 'all' || inc.severity === severityFilter
+  // Form Handlers
+  const handleCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setCreateError(null)
     
-    return matchesSearch && matchesSeverity
-  })
+    if (createForm.title.length < 3) {
+      setCreateError("Title must be at least 3 characters long.")
+      return
+    }
+    
+    const ipPattern = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/
+    if (createForm.source_ip && !ipPattern.test(createForm.source_ip)) {
+      setCreateError("Invalid Source IP format.")
+      return
+    }
+    if (createForm.destination_ip && !ipPattern.test(createForm.destination_ip)) {
+      setCreateError("Invalid Destination IP format.")
+      return
+    }
+    
+    try {
+      await createIncident({
+        title: createForm.title,
+        description: createForm.description || null,
+        severity: createForm.severity,
+        status: createForm.status,
+        category: createForm.category,
+        source_ip: createForm.source_ip || null,
+        destination_ip: createForm.destination_ip || null,
+        mitre_technique: createForm.mitre_technique || null,
+        assigned_user_id: createForm.assigned_user_id ? parseInt(createForm.assigned_user_id) : null,
+        remediation: createForm.remediation || null
+      })
+      
+      setIsCreateOpen(false)
+      setSuccessNotification("Incident created successfully!")
+      setTimeout(() => setSuccessNotification(null), 4000)
+      
+      setCreateForm({
+        title: '',
+        description: '',
+        severity: 'Low',
+        status: 'New',
+        category: 'Authentication',
+        source_ip: '',
+        destination_ip: '',
+        mitre_technique: '',
+        assigned_user_id: '',
+        remediation: ''
+      })
+    } catch (err: any) {
+      setCreateError(err.message || "Failed to create incident.")
+    }
+  }
+
+  const handleSaveEdit = async () => {
+    if (!selectedIncident) return
+    try {
+      await updateIncident(selectedIncident.id, {
+        status: editForm.status,
+        severity: editForm.severity,
+        assigned_user_id: editForm.assigned_user_id ? parseInt(editForm.assigned_user_id) : null,
+        remediation: editForm.remediation || null
+      })
+      setIsEditing(false)
+      setSuccessNotification("Incident updated successfully!")
+      setTimeout(() => setSuccessNotification(null), 3000)
+    } catch (err: any) {
+      console.error(err)
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (selectedIncident) {
+      try {
+        await deleteIncident(selectedIncident.id)
+        setIsConfirmDeleteOpen(false)
+        setSuccessNotification("Incident deleted successfully!")
+        setTimeout(() => setSuccessNotification(null), 4000)
+      } catch (err: any) {
+        console.error(err)
+      }
+    }
+  }
 
   // Skeleton placeholders
   const KpiSkeleton = () => (
@@ -569,14 +741,14 @@ function MainLayout() {
                               <TableCell className="font-mono text-accent font-semibold">{inc.id.slice(0, 8)}</TableCell>
                               <TableCell className="font-semibold text-white">{inc.title}</TableCell>
                               <TableCell>
-                                <Badge variant={inc.severity} type="severity">
+                                <Badge variant={mapSeverityToBadgeVariant(inc.severity)} type="severity">
                                   {inc.severity}
                                 </Badge>
                               </TableCell>
                               <TableCell className="font-mono text-slate-400">{inc.source}</TableCell>
                               <TableCell>{inc.category || 'System'}</TableCell>
                               <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                                {inc.status === 'active' || inc.status === 'investigating' ? (
+                                {inc.status?.toLowerCase() !== 'resolved' && inc.status?.toLowerCase() !== 'mitigated' ? (
                                   <Button variant="primary" size="sm" onClick={() => mitigateIncident(inc.id)} className="font-mono text-xs px-3.5 py-1.5 rounded-lg">
                                     Mitigate
                                   </Button>
@@ -605,85 +777,189 @@ function MainLayout() {
                   <p className="text-slate-400 text-sm mt-1">Audit, isolate, and execute response plays for platform anomalies.</p>
                 </div>
                 
-                {/* Severity filter tabs */}
-                <div className="inline-flex p-1 rounded-xl bg-bg-secondary border border-border-custom">
-                  {['all', 'critical', 'warning', 'info', 'success'].map((filter) => (
-                    <button
-                      key={filter}
-                      onClick={() => setSeverityFilter(filter)}
-                      className={`px-3 py-1.5 text-xs font-mono font-medium rounded-lg capitalize cursor-pointer transition-all ${
-                        severityFilter === filter
-                          ? 'bg-accent text-[#0B1020] font-semibold'
-                          : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      {filter}
-                    </button>
-                  ))}
+                <Button variant="primary" size="md" onClick={() => setIsCreateOpen(true)} className="flex items-center space-x-2 rounded-xl">
+                  <span>Create Incident</span>
+                </Button>
+              </div>
+
+              {/* Filters & Search */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-[#12182A] border border-border-custom/80 shadow-md">
+                {/* Search */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search incidents..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-3 pr-3 py-2 text-sm bg-bg-primary/50 border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 placeholder-slate-500 font-mono transition-colors"
+                  />
+                </div>
+
+                {/* Severity Filter */}
+                <div>
+                  <select
+                    value={severityFilter}
+                    onChange={(e) => { setSeverityFilter(e.target.value); setPage(1); }}
+                    className="w-full px-3 py-2 text-sm bg-bg-primary/50 border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors cursor-pointer"
+                  >
+                    <option value="all">All Severities</option>
+                    <option value="Critical">Critical</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
+
+                {/* Status Filter */}
+                <div>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                    className="w-full px-3 py-2 text-sm bg-bg-primary/50 border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors cursor-pointer"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="New">New</option>
+                    <option value="Investigating">Investigating</option>
+                    <option value="Mitigated">Mitigated</option>
+                    <option value="Resolved">Resolved</option>
+                  </select>
+                </div>
+
+                {/* Category Filter */}
+                <div>
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
+                    className="w-full px-3 py-2 text-sm bg-bg-primary/50 border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors cursor-pointer"
+                  >
+                    <option value="all">All Categories</option>
+                    <option value="Authentication">Authentication</option>
+                    <option value="Initial Access">Initial Access</option>
+                    <option value="Execution">Execution</option>
+                    <option value="Persistence">Persistence</option>
+                    <option value="Privilege Escalation">Privilege Escalation</option>
+                    <option value="Defense Evasion">Defense Evasion</option>
+                    <option value="Credential Access">Credential Access</option>
+                    <option value="Discovery">Discovery</option>
+                    <option value="Lateral Movement">Lateral Movement</option>
+                    <option value="Collection">Collection</option>
+                    <option value="Exfiltration">Exfiltration</option>
+                    <option value="Command and Control">Command and Control</option>
+                  </select>
                 </div>
               </div>
 
               {/* Incidents Table list */}
-              {filteredIncidents.length === 0 ? (
+              {error ? (
+                <div className="p-6 rounded-2xl bg-danger/10 border border-danger/35 text-danger text-center font-mono text-sm shadow-md">
+                  ⚠ Error loading incidents: {error}
+                </div>
+              ) : !isLoading && incidents.length === 0 ? (
                 <EmptyState
                   title="No incidents match filter"
-                  description="Try typing a different term in the search bar or changing the severity query tab."
+                  description="Try typing a different term in the search bar or changing your dropdown filters."
                 />
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>Incident Title</TableHead>
-                      <TableHead>Severity</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Source Node</TableHead>
-                      <TableHead>Time Triggered</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Action Playbook</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredIncidents.map((inc) => (
-                      <TableRow
-                        key={inc.id}
-                        onClick={() => selectIncident(inc)}
-                        className="cursor-pointer"
-                      >
-                        <TableCell className="font-mono text-accent font-semibold">{inc.id}</TableCell>
-                        <TableCell className="font-semibold text-white">{inc.title}</TableCell>
-                        <TableCell>
-                          <Badge variant={inc.severity} type="severity">
-                            {inc.severity}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{inc.category}</TableCell>
-                        <TableCell className="font-mono text-slate-450">{inc.source}</TableCell>
-                        <TableCell className="font-mono text-slate-450">{inc.timestamp}</TableCell>
-                        <TableCell className="capitalize">
-                          <span className={`inline-flex items-center text-xs ${
-                            inc.status === 'active' ? 'text-critical-custom' :
-                            inc.status === 'investigating' ? 'text-warning-custom' : 'text-slate-400'
-                          }`}>
-                            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 bg-current ${
-                              inc.status === 'active' || inc.status === 'investigating' ? 'animate-pulse' : ''
-                            }`} />
-                            {inc.status}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                          {inc.status === 'active' || inc.status === 'investigating' ? (
-                            <Button variant="primary" size="sm" onClick={() => mitigateIncident(inc.id)}>
-                              Mitigate
-                            </Button>
-                          ) : (
-                            <Badge variant="success" size="sm">Mitigated</Badge>
-                          )}
-                        </TableCell>
+                <div className="p-6 rounded-2xl bg-[#12182A] border border-border-custom/80 shadow-lg space-y-4">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Incident ID</TableHead>
+                        <TableHead>Incident Title</TableHead>
+                        <TableHead>Severity</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Source Node</TableHead>
+                        <TableHead>Triggered Time</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Action Playbook</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {isLoading ? (
+                        Array.from({ length: limit }).map((_, idx) => (
+                          <TableRowSkeleton key={idx} />
+                        ))
+                      ) : (
+                        incidents.map((inc) => (
+                          <TableRow
+                            key={inc.id}
+                            onClick={() => selectIncident(inc)}
+                            className="cursor-pointer transition-colors duration-150 hover:bg-[#1E293B]/30"
+                          >
+                            <TableCell className="font-mono text-accent font-semibold">{inc.id.slice(0, 8)}</TableCell>
+                            <TableCell className="font-semibold text-white">{inc.title}</TableCell>
+                            <TableCell>
+                              <Badge variant={mapSeverityToBadgeVariant(inc.severity)} type="severity">
+                                {inc.severity}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{inc.category}</TableCell>
+                            <TableCell className="font-mono text-slate-400">{inc.source}</TableCell>
+                            <TableCell className="font-mono text-slate-450 text-xs">{inc.timestamp}</TableCell>
+                            <TableCell>
+                              <Badge variant={mapStatusToBadgeVariant(inc.status)} type="status">
+                                {inc.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                              {inc.status !== 'Resolved' && inc.status !== 'Mitigated' && inc.status !== 'resolved' && inc.status !== 'mitigated' ? (
+                                <Button variant="primary" size="sm" onClick={() => mitigateIncident(inc.id)} className="font-mono text-xs px-3.5 py-1.5 rounded-lg">
+                                  Mitigate
+                                </Button>
+                              ) : (
+                                <Badge variant="success" size="sm">Mitigated</Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+
+                  {/* Pagination Controls */}
+                  {!isLoading && totalIncidents > 0 && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border-custom/60">
+                      <div className="flex items-center space-x-3 text-xs text-slate-450 font-mono">
+                        <span>Show</span>
+                        <select
+                          value={limit}
+                          onChange={(e) => { setLimit(parseInt(e.target.value)); setPage(1); }}
+                          className="px-2 py-1 bg-bg-primary/50 border border-border-custom rounded-lg text-slate-200 outline-none cursor-pointer"
+                        >
+                          <option value={5}>5</option>
+                          <option value={10}>10</option>
+                          <option value={20}>20</option>
+                          <option value={50}>50</option>
+                        </select>
+                        <span>entries (Total: {totalIncidents})</span>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={page === 1}
+                          onClick={() => setPage(p => Math.max(1, p - 1))}
+                          className="font-mono text-xs px-3 py-1.5 rounded-lg"
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-xs text-slate-400 font-mono px-3">
+                          Page {page} of {totalPages}
+                        </span>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={page === totalPages}
+                          onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                          className="font-mono text-xs px-3 py-1.5 rounded-lg"
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -833,74 +1109,383 @@ function MainLayout() {
       <Drawer
         isOpen={isDetailDrawerOpen}
         onClose={() => setDetailDrawerOpen(false)}
-        title={selectedIncident ? `Inspect Incident: ${selectedIncident.id}` : ''}
+        title={selectedIncident ? `Inspect Incident: ${selectedIncident.id.slice(0, 8)}` : ''}
       >
         {selectedIncident && (
-          <div className="space-y-8">
+          <div className="space-y-6 overflow-y-auto max-h-[85vh] pr-1">
             {/* Header info */}
             <div>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <h4 className="text-xl font-bold text-white m-0">{selectedIncident.title}</h4>
-                <Badge variant={selectedIncident.severity} type="severity">
-                  {selectedIncident.severity}
-                </Badge>
+                <div className="flex space-x-2">
+                  <Badge variant={mapSeverityToBadgeVariant(selectedIncident.severity)} type="severity">
+                    {selectedIncident.severity}
+                  </Badge>
+                  <Badge variant={mapStatusToBadgeVariant(selectedIncident.status)} type="status">
+                    {selectedIncident.status}
+                  </Badge>
+                </div>
               </div>
-              <span className="text-xs font-mono text-slate-500">Triggered timestamp: {selectedIncident.timestamp}</span>
+              <span className="text-xs font-mono text-slate-500">
+                Triggered Time: {selectedIncident.timestamp}
+              </span>
             </div>
 
-            {/* Incident Specifications */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 rounded-xl bg-bg-primary border border-border-custom">
-                <span className="text-[10px] text-slate-500 uppercase font-mono block mb-1">Source node</span>
-                <span className="text-sm font-mono text-slate-200">{selectedIncident.source}</span>
-              </div>
-              <div className="p-4 rounded-xl bg-bg-primary border border-border-custom">
-                <span className="text-[10px] text-slate-500 uppercase font-mono block mb-1">Alert category</span>
-                <span className="text-sm text-slate-200">{selectedIncident.category}</span>
-              </div>
+            {/* Editing / Viewing toggle */}
+            <div className="flex justify-between items-center py-2 border-b border-border-custom/50">
+              <span className="text-xs font-mono text-slate-400">Incident Details</span>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsEditing(!isEditing)}
+                className="font-mono text-xs px-2.5 py-1 rounded-lg"
+              >
+                {isEditing ? 'Cancel Edit' : 'Edit Fields'}
+              </Button>
             </div>
 
-            {/* Incident Description */}
-            <div className="space-y-2">
-              <h5 className="text-xs uppercase font-mono text-slate-400 m-0">Anomalous Telemetry</h5>
-              <div className="p-4 rounded-xl bg-bg-primary/50 border border-border-custom text-sm text-slate-300 leading-relaxed">
-                {selectedIncident.description}
-              </div>
-            </div>
+            {isEditing ? (
+              /* EDIT FORM PANEL */
+              <div className="space-y-4">
+                {/* Status */}
+                <div className="space-y-1">
+                  <label className="text-xs font-mono text-slate-400 block">Status</label>
+                  <select
+                    value={editForm.status}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                    className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors"
+                  >
+                    <option value="New">New</option>
+                    <option value="Investigating">Investigating</option>
+                    <option value="Mitigated">Mitigated</option>
+                    <option value="Resolved">Resolved</option>
+                  </select>
+                </div>
 
-            {/* Recommended Remediation Action */}
-            <div className="space-y-2">
-              <h5 className="text-xs uppercase font-mono text-slate-400 m-0">Mitigation Playbook Play</h5>
-              <div className="p-4 rounded-xl border border-success-custom/20 bg-success-custom/5 text-sm text-slate-300 leading-relaxed">
-                {selectedIncident.remediation || 'Remediation pipeline check required.'}
-              </div>
-            </div>
+                {/* Severity */}
+                <div className="space-y-1">
+                  <label className="text-xs font-mono text-slate-400 block">Severity</label>
+                  <select
+                    value={editForm.severity}
+                    onChange={(e) => setEditForm({ ...editForm, severity: e.target.value })}
+                    className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors"
+                  >
+                    <option value="Critical">Critical</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
 
-            {/* Drawer Control Options */}
-            <div className="flex items-center space-x-4 pt-4 border-t border-border-custom">
-              {selectedIncident.status === 'active' || selectedIncident.status === 'investigating' ? (
+                {/* Assigned Analyst */}
+                <div className="space-y-1">
+                  <label className="text-xs font-mono text-slate-400 block">Assigned Analyst</label>
+                  <select
+                    value={editForm.assigned_user_id}
+                    onChange={(e) => setEditForm({ ...editForm, assigned_user_id: e.target.value })}
+                    className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors"
+                  >
+                    <option value="">Unassigned</option>
+                    {analysts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.username} ({a.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Remediation */}
+                <div className="space-y-1">
+                  <label className="text-xs font-mono text-slate-400 block">Remediation Action Plan</label>
+                  <textarea
+                    rows={4}
+                    value={editForm.remediation}
+                    onChange={(e) => setEditForm({ ...editForm, remediation: e.target.value })}
+                    placeholder="Provide incident resolution/mitigation steps..."
+                    className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors placeholder-slate-600 resize-y"
+                  />
+                </div>
+
+                {/* Save Edit Button */}
+                <Button variant="primary" className="w-full" onClick={handleSaveEdit}>
+                  Save Changes
+                </Button>
+              </div>
+            ) : (
+              /* VIEW MODE DETAILS PANEL */
+              <div className="space-y-6">
+                {/* Specifications Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-3.5 rounded-xl bg-bg-primary border border-border-custom/50">
+                    <span className="text-[10px] text-slate-500 uppercase font-mono block mb-1">Source IP</span>
+                    <span className="text-sm font-mono text-slate-200">{selectedIncident.source_ip || 'N/A'}</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-bg-primary border border-border-custom/50">
+                    <span className="text-[10px] text-slate-500 uppercase font-mono block mb-1">Destination IP</span>
+                    <span className="text-sm font-mono text-slate-200">{selectedIncident.destination_ip || 'N/A'}</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-bg-primary border border-border-custom/50">
+                    <span className="text-[10px] text-slate-500 uppercase font-mono block mb-1">Alert Category</span>
+                    <span className="text-sm text-slate-200">{selectedIncident.category}</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-bg-primary border border-border-custom/50">
+                    <span className="text-[10px] text-slate-500 uppercase font-mono block mb-1">Assigned Analyst</span>
+                    <span className="text-sm text-slate-200 font-mono">
+                      {selectedIncident.assigned_user ? selectedIncident.assigned_user.username : 'Unassigned'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* MITRE Technique */}
+                <div className="space-y-1">
+                  <h5 className="text-xs uppercase font-mono text-slate-400 m-0">MITRE ATT&CK Technique</h5>
+                  <div className="p-3 rounded-xl bg-bg-primary/50 border border-border-custom/50 text-xs font-mono text-slate-200">
+                    {selectedIncident.mitre_technique || 'None mapped'}
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div className="space-y-1">
+                  <h5 className="text-xs uppercase font-mono text-slate-400 m-0">Anomalous Telemetry Description</h5>
+                  <div className="p-4 rounded-xl bg-bg-primary/50 border border-border-custom/50 text-sm text-slate-300 leading-relaxed">
+                    {selectedIncident.description}
+                  </div>
+                </div>
+
+                {/* Remediation */}
+                <div className="space-y-1">
+                  <h5 className="text-xs uppercase font-mono text-slate-400 m-0">Mitigation Playbook Play</h5>
+                  <div className="p-4 rounded-xl border border-success-custom/20 bg-success-custom/5 text-sm text-slate-300 leading-relaxed font-mono">
+                    {selectedIncident.remediation || 'Remediation pipeline checks required.'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bottom Actions */}
+            <div className="flex items-center space-x-3 pt-4 border-t border-border-custom">
+              {selectedIncident.status !== 'Resolved' && selectedIncident.status !== 'Mitigated' && selectedIncident.status !== 'resolved' && selectedIncident.status !== 'mitigated' && (
                 <Button
                   variant="primary"
                   className="flex-1"
                   onClick={() => mitigateIncident(selectedIncident.id)}
                 >
-                  Apply Mitigation Action
+                  Mitigate Incident
                 </Button>
-              ) : (
-                <div className="flex-1 p-3 rounded-xl bg-success-custom/10 border border-success-custom/20 text-center font-mono text-xs font-semibold text-success-custom">
-                  Incident mitigated successfully.
-                </div>
               )}
+              <Button
+                variant="danger"
+                onClick={() => setIsConfirmDeleteOpen(true)}
+                className="px-4 py-2 text-xs font-mono rounded-lg"
+              >
+                Delete
+              </Button>
               <Button
                 variant="secondary"
                 onClick={() => setDetailDrawerOpen(false)}
               >
-                Close Inspector
+                Close
               </Button>
             </div>
           </div>
         )}
       </Drawer>
+
+      {/* Create Incident Modal */}
+      <Modal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        title="Register New Incident Record"
+      >
+        <form onSubmit={handleCreateSubmit} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          {createError && (
+            <div className="p-3 text-xs font-mono bg-danger/10 border border-danger/30 text-danger rounded-lg">
+              ⚠ {createError}
+            </div>
+          )}
+
+          {/* Title */}
+          <div className="space-y-1">
+            <label className="text-xs font-mono text-slate-400 block">Title *</label>
+            <input
+              type="text"
+              required
+              value={createForm.title}
+              onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
+              placeholder="e.g. Host Privilege Escalation Detected"
+              className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors"
+            />
+          </div>
+
+          {/* Category */}
+          <div className="space-y-1">
+            <label className="text-xs font-mono text-slate-400 block">Category *</label>
+            <select
+              value={createForm.category}
+              onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
+              className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors cursor-pointer"
+            >
+              <option value="Authentication">Authentication</option>
+              <option value="Initial Access">Initial Access</option>
+              <option value="Execution">Execution</option>
+              <option value="Persistence">Persistence</option>
+              <option value="Privilege Escalation">Privilege Escalation</option>
+              <option value="Defense Evasion">Defense Evasion</option>
+              <option value="Credential Access">Credential Access</option>
+              <option value="Discovery">Discovery</option>
+              <option value="Lateral Movement">Lateral Movement</option>
+              <option value="Collection">Collection</option>
+              <option value="Exfiltration">Exfiltration</option>
+              <option value="Command and Control">Command and Control</option>
+            </select>
+          </div>
+
+          {/* Severity & Status */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-mono text-slate-400 block">Severity</label>
+              <select
+                value={createForm.severity}
+                onChange={(e) => setCreateForm({ ...createForm, severity: e.target.value })}
+                className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors cursor-pointer"
+              >
+                <option value="Critical">Critical</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-mono text-slate-400 block">Status</label>
+              <select
+                value={createForm.status}
+                onChange={(e) => setCreateForm({ ...createForm, status: e.target.value })}
+                className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors cursor-pointer"
+              >
+                <option value="New">New</option>
+                <option value="Investigating">Investigating</option>
+                <option value="Mitigated">Mitigated</option>
+                <option value="Resolved">Resolved</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Source IP & Destination IP */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-mono text-slate-400 block">Source IP</label>
+              <input
+                type="text"
+                value={createForm.source_ip}
+                onChange={(e) => setCreateForm({ ...createForm, source_ip: e.target.value })}
+                placeholder="e.g. 10.0.1.15"
+                className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-mono text-slate-400 block">Destination IP</label>
+              <input
+                type="text"
+                value={createForm.destination_ip}
+                onChange={(e) => setCreateForm({ ...createForm, destination_ip: e.target.value })}
+                placeholder="e.g. 192.168.1.100"
+                className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* MITRE Technique & Analyst Assignment */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-mono text-slate-400 block">MITRE Technique</label>
+              <input
+                type="text"
+                value={createForm.mitre_technique}
+                onChange={(e) => setCreateForm({ ...createForm, mitre_technique: e.target.value })}
+                placeholder="e.g. T1078 (Valid Accounts)"
+                className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-mono text-slate-400 block">Assigned Analyst</label>
+              <select
+                value={createForm.assigned_user_id}
+                onChange={(e) => setCreateForm({ ...createForm, assigned_user_id: e.target.value })}
+                className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors cursor-pointer"
+              >
+                <option value="">Unassigned</option>
+                {analysts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.username} ({a.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="space-y-1">
+            <label className="text-xs font-mono text-slate-400 block">Description</label>
+            <textarea
+              rows={3}
+              value={createForm.description}
+              onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+              placeholder="Provide telemetry triggers or security alert logs..."
+              className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors placeholder-slate-600 resize-none"
+            />
+          </div>
+
+          {/* Remediation */}
+          <div className="space-y-1">
+            <label className="text-xs font-mono text-slate-400 block">Remediation Actions</label>
+            <textarea
+              rows={3}
+              value={createForm.remediation}
+              onChange={(e) => setCreateForm({ ...createForm, remediation: e.target.value })}
+              placeholder="Remediation steps or response containment instructions..."
+              className="w-full px-3 py-2 text-sm bg-bg-primary border border-border-custom hover:border-accent/40 focus:border-accent focus:outline-none rounded-xl text-slate-100 font-mono transition-colors placeholder-slate-600 resize-none"
+            />
+          </div>
+
+          {/* Buttons */}
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="secondary" type="button" onClick={() => setIsCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit">
+              Register Incident
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isConfirmDeleteOpen}
+        onClose={() => setIsConfirmDeleteOpen(false)}
+        title="Confirm permanent deletion"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-300 leading-relaxed">
+            Are you sure you want to permanently delete this incident record? This action is irreversible and will remove all audit data.
+          </p>
+          <div className="flex justify-end space-x-3">
+            <Button variant="secondary" onClick={() => setIsConfirmDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={handleConfirmDelete}>
+              Confirm Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Success Notification Banner */}
+      {successNotification && (
+        <div className="fixed top-6 right-6 z-50 p-4 rounded-xl bg-success-custom/10 border border-success-custom/30 text-success-custom font-mono text-sm shadow-2xl animate-in fade-in slide-in-from-top-4 duration-300">
+          ✓ {successNotification}
+        </div>
+      )}
     </div>
   )
 }

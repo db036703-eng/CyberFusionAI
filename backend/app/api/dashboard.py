@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List
 import time
 from app.db.database import get_db
-from app.db.models import Incident, User
+from app.db.models import Incident, User, IncidentSeverity, IncidentStatus
 from app.api.auth import get_current_user
 from app.schemas.dashboard import DashboardSummary, SystemHealth, ThreatFeedItem
 from app.schemas.incident import IncidentResponse
@@ -19,8 +19,15 @@ def get_dashboard_summary(
     current_user: User = Depends(get_current_user)
 ):
     incidents = db.query(Incident).all()
-    critical_incidents = len([i for i in incidents if i.severity == 'critical' and i.status == 'active'])
-    open_incidents = len([i for i in incidents if i.status == 'active' or i.status == 'investigating'])
+    critical_incidents = len([
+        i for i in incidents 
+        if (i.severity == IncidentSeverity.Critical or getattr(i.severity, 'value', None) == 'Critical' or i.severity == 'critical') 
+        and (i.status not in (IncidentStatus.Resolved, IncidentStatus.Mitigated) and getattr(i.status, 'value', None) not in ('Resolved', 'Mitigated') and i.status not in ('resolved', 'mitigated'))
+    ])
+    open_incidents = len([
+        i for i in incidents 
+        if (i.status in (IncidentStatus.New, IncidentStatus.Investigating) or getattr(i.status, 'value', None) in ('New', 'Investigating') or i.status in ('active', 'investigating', 'new'))
+    ])
     
     # Calculate a simple organization risk index based on critical incidents count
     risk_score = 32

@@ -43,19 +43,45 @@ class RefreshToken(Base):
 
     user = relationship("User", back_populates="refresh_tokens")
 
+class IncidentSeverity(str, enum.Enum):
+    Critical = "Critical"
+    High = "High"
+    Medium = "Medium"
+    Low = "Low"
+
+class IncidentStatus(str, enum.Enum):
+    New = "New"
+    Investigating = "Investigating"
+    Mitigated = "Mitigated"
+    Resolved = "Resolved"
+
+class IncidentCategory(str, enum.Enum):
+    Authentication = "Authentication"
+    Initial_Access = "Initial Access"
+    Execution = "Execution"
+    Persistence = "Persistence"
+    Privilege_Escalation = "Privilege Escalation"
+    Defense_Evasion = "Defense Evasion"
+    Credential_Access = "Credential Access"
+    Discovery = "Discovery"
+    Lateral_Movement = "Lateral Movement"
+    Collection = "Collection"
+    Exfiltration = "Exfiltration"
+    Command_and_Control = "Command and Control"
+
 class Incident(Base):
     __tablename__ = "incidents"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
-    severity = Column(String, nullable=False, default="info")
-    status = Column(String, nullable=False, default="active")
+    severity = Column(Enum(IncidentSeverity), nullable=False, default=IncidentSeverity.Low)
+    status = Column(Enum(IncidentStatus), nullable=False, default=IncidentStatus.New)
     source_ip = Column(String, nullable=True)
     destination_ip = Column(String, nullable=True)
     mitre_technique = Column(String, nullable=True)
     assigned_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    category = Column(String, nullable=True)
+    category = Column(Enum(IncidentCategory), nullable=False, default=IncidentCategory.Authentication)
     remediation = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
