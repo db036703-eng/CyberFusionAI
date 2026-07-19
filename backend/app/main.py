@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
-from app.api import health, auth, incidents, dashboard
+from app.api import health, auth, incidents, dashboard, simulations
 from app.core.config import settings
 
 app = FastAPI(
@@ -26,6 +26,7 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(incidents.router)
 app.include_router(dashboard.router)
+app.include_router(simulations.router)
 
 @app.get("/", include_in_schema=False)
 def root_endpoint():

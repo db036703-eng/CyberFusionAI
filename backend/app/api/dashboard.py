@@ -29,10 +29,15 @@ def get_dashboard_summary(
         if (i.status in (IncidentStatus.New, IncidentStatus.Investigating) or getattr(i.status, 'value', None) in ('New', 'Investigating') or i.status in ('active', 'investigating', 'new'))
     ])
     
-    # Calculate a simple organization risk index based on critical incidents count
-    risk_score = 32
-    if critical_incidents > 0:
-        risk_score = 72
+    # Calculate organization risk index based on latest simulation or critical incidents count
+    from app.db.models import Simulation
+    latest_sim = db.query(Simulation).order_by(Simulation.started_at.desc()).first()
+    if latest_sim:
+        risk_score = latest_sim.overall_risk
+    else:
+        risk_score = 32
+        if critical_incidents > 0:
+            risk_score = 72
         
     return DashboardSummary(
         organization_risk=risk_score,

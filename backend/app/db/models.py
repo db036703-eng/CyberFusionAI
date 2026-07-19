@@ -93,3 +93,46 @@ class Incident(Base):
 
     assigned_user = relationship("User")
 
+class SimulationStatus(str, enum.Enum):
+    Pending = "Pending"
+    Running = "Running"
+    Completed = "Completed"
+    Failed = "Failed"
+
+class Simulation(Base):
+    __tablename__ = "simulations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    name = Column(String, nullable=False)
+    status = Column(Enum(SimulationStatus), nullable=False, default=SimulationStatus.Pending)
+    initiated_by = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    duration_seconds = Column(Integer, nullable=False, default=0)
+    overall_risk = Column(Integer, nullable=False, default=32)
+    incident_count = Column(Integer, nullable=False, default=0)
+    risk_score_change = Column(Integer, nullable=False, default=0)
+    result = Column(String, nullable=True)
+
+    # Unidirectional relationship to User
+    initiated_by_user = relationship("User")
+    
+    # Bidirectional relationship to SimulationEvent
+    events = relationship("SimulationEvent", back_populates="simulation", cascade="all, delete-orphan")
+
+class SimulationEvent(Base):
+    __tablename__ = "simulation_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    simulation_id = Column(UUID(as_uuid=True), ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False)
+    stage = Column(Integer, nullable=False)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    severity = Column(Enum(IncidentSeverity), nullable=False, default=IncidentSeverity.Low)
+    mitre_technique = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    incident_id = Column(UUID(as_uuid=True), ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
+
+    simulation = relationship("Simulation", back_populates="events")
+    incident = relationship("Incident")
+

@@ -1,415 +1,337 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { PageShell } from '../ui/PageShell'
 import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
 import { Badge } from '../ui/Badge'
+import { Modal } from '../ui/Modal'
+import { useUIStore } from '../../store/uiStore'
+import { apiRequest } from '../../utils/api'
 import {
   Play,
-  Pause,
-  RotateCcw,
   Activity,
   Layers,
   Globe,
   Brain,
   Clock,
-  Terminal
+  Terminal,
+  Trash2,
+  Eye,
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react'
 
-interface SimStep {
-  name: string
-  tactic: string
-  technique: string
-  severity: 'critical' | 'warning' | 'info' | 'success'
+interface Stage {
+  stage_number: number
+  title: string
   description: string
-  risk: number
-  iocs: {
-    ip?: string
-    domain?: string
-    hash?: string
-  }
-  aiExplanation: string
+  severity: string
+  mitre_technique: string
+  incident_category: string
+  create_incident: boolean
+  source_ip?: string
+  destination_ip?: string
+  remediation?: string
 }
 
 interface Scenario {
   name: string
   description: string
-  complexity: 'Critical' | 'Warning' | 'Info'
-  steps: SimStep[]
+  estimated_duration: number
+  delay_between_stages: number
+  difficulty: 'Low' | 'Medium' | 'High' | 'Critical'
+  recommended_role: string
+  risk_change: number
+  primary_mitre_techniques: string[]
+  stages: Stage[]
 }
 
-export const AttackSimulatorPage: React.FC = () => {
-  // 5 Scenarios Database
-  const scenarios: Scenario[] = [
-    {
-      name: 'Phishing → Credential Theft',
-      description: 'Simulates a spearphishing email campaign executing a credential harvesting portal leading to session hijack.',
-      complexity: 'Critical',
-      steps: [
-        {
-          name: 'Spearphishing Email Opened',
-          tactic: 'Initial Access',
-          technique: 'T1566.002',
-          severity: 'info',
-          description: 'Employee opened high-risk link in a simulated spearphishing campaign email on Workstation-HR-04.',
-          risk: 38,
-          iocs: { domain: 'secure-office-login.com', ip: '192.0.2.14' },
-          aiExplanation: 'AI detects an employee clicked an untrusted external link leading to a mock Microsoft login clone.'
-        },
-        {
-          name: 'Credential Harvesting',
-          tactic: 'Credential Access',
-          technique: 'T1204.001',
-          severity: 'warning',
-          description: 'Active Directory login payload entered on lookalike portal. Credentials harvested.',
-          risk: 58,
-          iocs: { hash: 'f3a9e8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9' },
-          aiExplanation: 'User credentials submitted. Active Directory monitoring warns of lookalike authentication requests.'
-        },
-        {
-          name: 'VPN Session Hijack',
-          tactic: 'Defense Evasion',
-          technique: 'T1078.002',
-          severity: 'critical',
-          description: 'Adversary generates session token and logs into company VPN from anomalous IP block.',
-          risk: 82,
-          iocs: { ip: '203.0.113.88' },
-          aiExplanation: 'Adversary gains active remote network access via hijacked AD accounts. Quarantine checklist triggered.'
-        },
-        {
-          name: 'Internal Asset Recon',
-          tactic: 'Discovery',
-          technique: 'T1087.002',
-          severity: 'warning',
-          description: 'Anomalous LDAP directory queries mapping core postgresql server clusters.',
-          risk: 88,
-          iocs: { ip: '10.0.4.82' },
-          aiExplanation: 'Adversary attempts account and network group discoveries, seeking local database administrator paths.'
-        },
-        {
-          name: 'AD Session Containment',
-          tactic: 'Mitigation',
-          technique: 'T1562.001',
-          severity: 'success',
-          description: 'AD session revoked, firewall rule applied. Threat vector fully isolated.',
-          risk: 32,
-          iocs: {},
-          aiExplanation: 'Remediation completed: employee VPN token terminated, attacker subnet blacklisted at gateway level.'
-        }
-      ]
-    },
-    {
-      name: 'Ransomware Outbreak',
-      description: 'Simulates high-speed local file encryption macro payloads attempting shadow copy deletion.',
-      complexity: 'Critical',
-      steps: [
-        {
-          name: 'Macro Payload Execution',
-          tactic: 'Execution',
-          technique: 'T1204.002',
-          severity: 'warning',
-          description: 'Finance employee runs email attachment spreadsheet, launching hidden powershell macro.',
-          risk: 42,
-          iocs: { hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
-          aiExplanation: 'A malicious macro payload launched on Workstation-Finance-03. Subprocess spawn matches known ransomware loader signatures.'
-        },
-        {
-          name: 'Backup Volume Deletion',
-          tactic: 'Defense Evasion',
-          technique: 'T1489',
-          severity: 'critical',
-          description: 'Execution command net stop "Volume Shadow Copy" detected to prevent system restoration.',
-          risk: 74,
-          iocs: {},
-          aiExplanation: 'Ransomware initiates system backup disablement. Host security registry attempts remediation rules block.'
-        },
-        {
-          name: 'Cryptographic Encryption',
-          tactic: 'Impact',
-          technique: 'T1486',
-          severity: 'critical',
-          description: 'Mass local file writes detected. Files renamed with .locked extension at 180 actions/sec.',
-          risk: 94,
-          iocs: { domain: 'ransom-recovery-portal.net' },
-          aiExplanation: 'High-frequency encryptions active on local partition. Risk assessment raised to maximum priority.'
-        },
-        {
-          name: 'Automated Port Quarantine',
-          tactic: 'Mitigation',
-          technique: 'T1486',
-          severity: 'success',
-          description: 'Workstation-Finance-03 network port isolated, halts further directory spread.',
-          risk: 35,
-          iocs: {},
-          aiExplanation: 'Host isolated from corporate VLAN. Infection contained. Decryption key backup recovery script initiated.'
-        }
-      ]
-    },
-    {
-      name: 'Gateway SSH Brute Force',
-      description: 'Simulates dictionary attack queries on core SSH entry ports targeting administrative users.',
-      complexity: 'Warning',
-      steps: [
-        {
-          name: 'Concurrent SSH Scans',
-          tactic: 'Credential Access',
-          technique: 'T1110.001',
-          severity: 'warning',
-          description: 'IP 198.51.100.12 scans SSH gateway Port 22 at 80 connections/sec.',
-          risk: 45,
-          iocs: { ip: '198.51.100.12' },
-          aiExplanation: 'Gateway telemetry detects high-volume network scans probing for responsive administrative portals.'
-        },
-        {
-          name: 'Password Guessing Threshold',
-          tactic: 'Credential Access',
-          technique: 'T1110',
-          severity: 'warning',
-          description: '150 failed password login queries logged on user account: root.',
-          risk: 62,
-          iocs: {},
-          aiExplanation: 'Password brute force attempts exceeded maximum safety margins. System security policy raises alerts.'
-        },
-        {
-          name: 'Session Connection Established',
-          tactic: 'Initial Access',
-          technique: 'T1078',
-          severity: 'critical',
-          description: 'Bruteforce password match succeeds, SSH session spawned on primary postgres server node.',
-          risk: 88,
-          iocs: { ip: '10.0.4.82' },
-          aiExplanation: 'Host database compromised. Threat actor opened SSH connection shell utilizing compromised administrative passwords.'
-        },
-        {
-          name: 'IP Ingress Drop Rule',
-          tactic: 'Mitigation',
-          technique: 'T1110.001',
-          severity: 'success',
-          description: 'Attacker IP blocklisted, SSH gateway service pool cycled. Connection severed.',
-          risk: 30,
-          iocs: {},
-          aiExplanation: 'Firewall drop rule applied on CIDR block 198.51.100.0/24. Administrator password rotation cycle forced.'
-        }
-      ]
-    },
-    {
-      name: 'Insider Data Exfiltration',
-      description: 'Simulates database exfiltration executed by compromised internal credentials fetching registry tables.',
-      complexity: 'Warning',
-      steps: [
-        {
-          name: 'Anomalous Repo Inquiries',
-          tactic: 'Collection',
-          technique: 'T1213',
-          severity: 'warning',
-          description: 'Active database credentials mapping customer registry lists outside standard hours by user Developer-09.',
-          risk: 48,
-          iocs: { ip: '10.0.12.14' },
-          aiExplanation: 'Internal employee user account queries unusually large repository database tables during office off-hours.'
-        },
-        {
-          name: 'Data Zip Archiving',
-          tactic: 'Collection',
-          technique: 'T1560.001',
-          severity: 'warning',
-          description: 'Mass ZIP generation: file customer_db_dump.zip packaged on server local drives.',
-          risk: 68,
-          iocs: { hash: '9b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c' },
-          aiExplanation: 'Local zip compression activity executed on parsed database directories. Signature matches exfiltration prep.'
-        },
-        {
-          name: 'HTTPS Cloud Exfiltration',
-          tactic: 'Exfiltration',
-          technique: 'T1567.002',
-          severity: 'critical',
-          description: 'Outbound upload stream transferring customer_db_dump.zip to mega-upload-cloud.net (4.2GB sent).',
-          risk: 90,
-          iocs: { domain: 'mega-upload-cloud.net' },
-          aiExplanation: 'High-volume exfiltration connection currently uploading customer profile registers to unverified storage nodes.'
-        },
-        {
-          name: 'AD Ingress Suspension',
-          tactic: 'Mitigation',
-          technique: 'T1567',
-          severity: 'success',
-          description: 'Employee AD profile disabled, outbound mega-upload connection dropped at proxy level.',
-          risk: 32,
-          iocs: {},
-          aiExplanation: 'Operator credentials disabled, exfiltration link terminated at firewall proxy filters. Log audits saved.'
-        }
-      ]
-    },
-    {
-      name: 'Command & Control Beacon',
-      description: 'Simulates host beacon channels communicating out using DNS Domain Generation Algorithms.',
-      complexity: 'Critical',
-      steps: [
-        {
-          name: 'Web Protocol Inception',
-          tactic: 'Command & Control',
-          technique: 'T1071.001',
-          severity: 'warning',
-          description: 'Host Workstation-Ops-09 registers anomalous HTTP beacon pings to external base c2-controller-base.org.',
-          risk: 46,
-          iocs: { domain: 'c2-controller-base.org' },
-          aiExplanation: 'System telemetry records recurring outbound web packets aligning with adversary C2 beacon signals.'
-        },
-        {
-          name: 'DNS DGA Tunnel Active',
-          tactic: 'Command & Control',
-          technique: 'T1071.004',
-          severity: 'critical',
-          description: 'High-entropy subdomain queries matching domain generation algorithms (dga-exfil.xyz).',
-          risk: 76,
-          iocs: { domain: 'dga-exfil.xyz' },
-          aiExplanation: 'DNS query entropy spikes. Adversary utilizing DNS tunneling to bypass proxy filter blocks.'
-        },
-        {
-          name: 'Payload Command Execution',
-          tactic: 'Execution',
-          technique: 'T1059',
-          severity: 'critical',
-          description: 'Base64 encoded interactive shell commands downloaded and executed by command line.',
-          risk: 86,
-          iocs: { hash: '3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f' },
-          aiExplanation: 'Attacker executes script inputs locally. Active host remote shells must be contained immediately.'
-        },
-        {
-          name: 'Domain DNS Sinkhole',
-          tactic: 'Mitigation',
-          technique: 'T1071',
-          severity: 'success',
-          description: 'DNS sinkhole rule applied to DGA domain vectors, host quarantined.',
-          risk: 32,
-          iocs: {},
-          aiExplanation: 'Adversary beacons sinkholed at router level. Compromised host fully contained from server subnets.'
-        }
-      ]
-    }
-  ]
+const fallbackScenarios: Scenario[] = [
+  {
+    name: "SSH Brute Force",
+    description: "Simulates brute force authentication attempts on SSH gateway servers.",
+    estimated_duration: 6,
+    delay_between_stages: 2,
+    difficulty: "Medium",
+    recommended_role: "SOC Analyst",
+    risk_change: 40,
+    primary_mitre_techniques: ["T1595.001", "T1110.001", "T1078.002"],
+    stages: []
+  },
+  {
+    name: "Phishing Campaign",
+    description: "Simulates spearphishing link executions leading to harvested user credentials.",
+    estimated_duration: 6,
+    delay_between_stages: 2,
+    difficulty: "Medium",
+    recommended_role: "SOC Analyst",
+    risk_change: 30,
+    primary_mitre_techniques: ["T1566.001", "T1204.001", "T1566.002"],
+    stages: []
+  },
+  {
+    name: "PowerShell Execution",
+    description: "Simulates local PowerShell shell execution pulling downstream payloads.",
+    estimated_duration: 6,
+    delay_between_stages: 2,
+    difficulty: "High",
+    recommended_role: "Threat Hunter",
+    risk_change: 35,
+    primary_mitre_techniques: ["T1059.001", "T1105"],
+    stages: []
+  },
+  {
+    name: "Credential Dumping",
+    description: "Simulates memory access scans targeting local Windows credential stores.",
+    estimated_duration: 6,
+    delay_between_stages: 2,
+    difficulty: "Critical",
+    recommended_role: "Threat Hunter",
+    risk_change: 50,
+    primary_mitre_techniques: ["T1003.001", "T1003.002"],
+    stages: []
+  },
+  {
+    name: "DNS Tunneling",
+    description: "Simulates command-and-control beacon tunnels routing data inside raw DNS query TXT formats.",
+    estimated_duration: 6,
+    delay_between_stages: 2,
+    difficulty: "Critical",
+    recommended_role: "Threat Hunter",
+    risk_change: 45,
+    primary_mitre_techniques: ["T1071.004", "T1071"],
+    stages: []
+  },
+  {
+    name: "Lateral Movement",
+    description: "Simulates administrative remote shares query attempts moving between core database nodes.",
+    estimated_duration: 6,
+    delay_between_stages: 2,
+    difficulty: "High",
+    recommended_role: "SOC Analyst",
+    risk_change: 40,
+    primary_mitre_techniques: ["T1021.002", "T1021.001"],
+    stages: []
+  },
+  {
+    name: "Privilege Escalation",
+    description: "Simulates security context elevation attempts targeting local system context accounts.",
+    estimated_duration: 6,
+    delay_between_stages: 2,
+    difficulty: "High",
+    recommended_role: "Threat Hunter",
+    risk_change: 45,
+    primary_mitre_techniques: ["T1134", "T1134.001"],
+    stages: []
+  },
+  {
+    name: "Ransomware Activity",
+    description: "Simulates system volume shadow copy overrides and high-speed local partition locking plays.",
+    estimated_duration: 6,
+    delay_between_stages: 2,
+    difficulty: "Critical",
+    recommended_role: "SOC Analyst",
+    risk_change: 55,
+    primary_mitre_techniques: ["T1489", "T1486"],
+    stages: []
+  }
+]
 
-  // Simulator State Machine
+export const AttackSimulatorPage: React.FC = () => {
+  // State Machine
+  const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [activeScenarioIdx, setActiveScenarioIdx] = useState(0)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [currentStep, setCurrentStep] = useState(-1) // -1 means simulation hasn't started yet
-  const [speed, setSpeed] = useState<1 | 2 | 4>(1)
+  const [history, setHistory] = useState<any[]>([])
+  const [activeSimulation, setActiveSimulation] = useState<any | null>(null)
+  const [activeEvents, setActiveEvents] = useState<any[]>([])
+  const [selectedHistorySim, setSelectedHistorySim] = useState<any | null>(null)
+  const [historyEvents, setHistoryEvents] = useState<any[]>([])
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [elapsedTime, setElapsedTime] = useState(0)
+
+  // Load scenarios and history on mount
+  useEffect(() => {
+    fetchScenarios()
+    fetchHistory()
+  }, [])
+
+  // Poll active simulation progress
+  useEffect(() => {
+    let pollInterval: any = null
+    
+    if (activeSimulation && (activeSimulation.status === 'Pending' || activeSimulation.status === 'Running')) {
+      pollInterval = setInterval(async () => {
+        try {
+          const sim = await apiRequest(`/simulations/${activeSimulation.id}`)
+          const events = await apiRequest(`/simulations/${activeSimulation.id}/events`)
+          
+          setActiveSimulation(sim)
+          setActiveEvents(events)
+          
+          if (sim.status === 'Completed' || sim.status === 'Failed') {
+            clearInterval(pollInterval)
+            fetchHistory()
+            // Refresh dashboard metrics
+            useUIStore.getState().fetchDashboardSummary()
+            useUIStore.getState().fetchRecentIncidents()
+            useUIStore.getState().fetchIncidents()
+          }
+        } catch (err: any) {
+          console.error("Error polling active simulation:", err)
+        }
+      }, 2000)
+    }
+    
+    return () => {
+      if (pollInterval) clearInterval(pollInterval)
+    }
+  }, [activeSimulation])
+
+  // Track elapsed time during running simulation
+  useEffect(() => {
+    let timer: any = null
+    if (activeSimulation && activeSimulation.status === 'Running') {
+      const start = new Date(activeSimulation.started_at).getTime()
+      timer = setInterval(() => {
+        const now = Date.now()
+        setElapsedTime(Math.round((now - start) / 1000))
+      }, 1000)
+    } else {
+      setElapsedTime(0)
+    }
+    return () => {
+      if (timer) clearInterval(timer)
+    }
+  }, [activeSimulation])
+
+  const fetchScenarios = async () => {
+    try {
+      const data = await apiRequest('/simulations/scenarios')
+      setScenarios(data)
+    } catch (err: any) {
+      console.warn("Failed to fetch scenarios from API, using fallback scenarios", err)
+      setScenarios(fallbackScenarios)
+    }
+  }
+
+  const fetchHistory = async () => {
+    setLoading(true)
+    try {
+      const data = await apiRequest('/simulations')
+      setHistory(data)
+      
+      // Check if there is an active simulation running in background
+      const active = data.find((sim: any) => sim.status === 'Running' || sim.status === 'Pending')
+      if (active) {
+        setActiveSimulation(active)
+        // Fetch its events
+        const events = await apiRequest(`/simulations/${active.id}/events`)
+        setActiveEvents(events)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to load simulation history')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRunSimulation = async (scenarioName: string) => {
+    setError(null)
+    try {
+      const res = await apiRequest('/simulations/run', {
+        method: 'POST',
+        body: JSON.stringify({ scenario_name: scenarioName })
+      })
+      setActiveSimulation(res)
+      setActiveEvents([])
+      setElapsedTime(0)
+    } catch (err: any) {
+      setError(err.message || 'Another simulation may be running.')
+    }
+  }
+
+  const handleDeleteSimulation = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!window.confirm("Are you sure you want to delete this simulation?")) return
+    try {
+      await apiRequest(`/simulations/${id}`, {
+        method: 'DELETE'
+      })
+      setHistory(prev => prev.filter(sim => sim.id !== id))
+      if (activeSimulation && activeSimulation.id === id) {
+        setActiveSimulation(null)
+        setActiveEvents([])
+      }
+      useUIStore.getState().fetchDashboardSummary()
+    } catch (err: any) {
+      alert("Failed to delete simulation: " + err.message)
+    }
+  }
+
+  const handleViewTimeline = async (sim: any) => {
+    setSelectedHistorySim(sim)
+    try {
+      const events = await apiRequest(`/simulations/${sim.id}/events`)
+      setHistoryEvents(events)
+      setIsModalOpen(true)
+    } catch (err: any) {
+      alert("Failed to fetch timeline: " + err.message)
+    }
+  }
 
   const activeScenario = scenarios[activeScenarioIdx]
-  const isFinished = currentStep >= activeScenario.steps.length - 1
 
-  // Dynamic simulation timer hook
-  const intervalRef = useRef<any>(null)
-
-  useEffect(() => {
-    if (isPlaying) {
-      const duration = 3000 / speed
-      intervalRef.current = setInterval(() => {
-        setCurrentStep((prev) => {
-          if (prev < activeScenario.steps.length - 1) {
-            return prev + 1
-          } else {
-            setIsPlaying(false)
-            if (intervalRef.current) clearInterval(intervalRef.current)
-            return prev
-          }
-        })
-      }, duration)
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
-    }
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-  }, [isPlaying, speed, activeScenarioIdx, activeScenario.steps.length])
-
-  const handleSelectScenario = (idx: number) => {
-    setIsPlaying(false)
-    setActiveScenarioIdx(idx)
-    setCurrentStep(-1)
-  }
-
-  const handlePlay = () => {
-    if (isFinished) {
-      setCurrentStep(0)
-    } else if (currentStep === -1) {
-      setCurrentStep(0)
-    }
-    setIsPlaying(true)
-  }
-
-  const handlePause = () => {
-    setIsPlaying(false)
-  }
-
-  const handleReset = () => {
-    setIsPlaying(false)
-    setCurrentStep(-1)
-  }
-
-  // Derived current metrics
-  const activeStepDetail = currentStep >= 0 ? activeScenario.steps[currentStep] : null
-  const currentRiskScore = activeStepDetail ? activeStepDetail.risk : 30
+  // Derived current metrics for active or selected views
+  const isSimulating = activeSimulation && (activeSimulation.status === 'Pending' || activeSimulation.status === 'Running')
+  const simulationProgress = isSimulating ? activeSimulation : null
+  const currentRiskScore = simulationProgress ? simulationProgress.overall_risk : 32
   
-  // History timeline built from starting up to currentStep
-  const timelineEvents = currentStep >= 0 
-    ? activeScenario.steps.slice(0, currentStep + 1).map((s, idx) => ({
-        timestamp: `10:48:${30 + idx * 5}`,
-        name: s.name,
-        tactic: s.tactic,
-        technique: s.technique,
-        severity: s.severity,
-        description: s.description
-      })).reverse()
-    : []
+  // Stages calculations
+  const currentScenarioDetails = scenarios.find(s => s.name === activeSimulation?.name) || activeScenario
+  const totalStages = currentScenarioDetails?.stages?.length || 3
+  const completedStages = activeEvents.length
+  const progressPercent = Math.min(100, Math.round((completedStages / totalStages) * 100))
 
-  // All IOCs generated up to currentStep
-  const timelineIocs = currentStep >= 0
-    ? activeScenario.steps.slice(0, currentStep + 1).reduce((acc: { type: string; value: string }[], step) => {
-        if (step.iocs.ip) acc.push({ type: 'Host IP', value: step.iocs.ip })
-        if (step.iocs.domain) acc.push({ type: 'C2 Domain', value: step.iocs.domain })
-        if (step.iocs.hash) acc.push({ type: 'Payload Hash', value: step.iocs.hash })
-        return acc
-      }, []).reverse()
-    : []
+  const activeStepDetail = activeEvents.length > 0 ? activeEvents[activeEvents.length - 1] : null
+  const estimatedDuration = currentScenarioDetails?.estimated_duration || 6
+  const remainingTime = Math.max(0, estimatedDuration - elapsedTime)
 
   // MITRE technique list to map inside the UI panel
   const allMitreCodes = [
-    { code: 'T1566.002', name: 'Spearphishing Link', tactic: 'Initial Access' },
-    { code: 'T1204.001', name: 'User Execution: Link', tactic: 'Credential Access' },
-    { code: 'T1204.002', name: 'User Execution: File', tactic: 'Execution' },
-    { code: 'T1078', name: 'Valid Accounts', tactic: 'Initial Access' },
+    { code: 'T1595.001', name: 'Active Scanning', tactic: 'Reconnaissance' },
+    { code: 'T1110.001', name: 'Password Guessing', tactic: 'Credential Access' },
     { code: 'T1078.002', name: 'Domain Accounts', tactic: 'Defense Evasion' },
-    { code: 'T1087.002', name: 'Account Discovery', tactic: 'Discovery' },
-    { code: 'T1562.001', name: 'Impair Defenses', tactic: 'Mitigation' },
-    { code: 'T1489', name: 'Service Stop', tactic: 'Defense Evasion' },
-    { code: 'T1486', name: 'Data Encrypted', tactic: 'Impact' },
-    { code: 'T1110.001', name: 'Brute Force SSH', tactic: 'Credential Access' },
-    { code: 'T1110', name: 'Brute Force', tactic: 'Credential Access' },
-    { code: 'T1213', name: 'Info Repositories', tactic: 'Collection' },
-    { code: 'T1560.001', name: 'Archive via Utility', tactic: 'Collection' },
-    { code: 'T1567.002', name: 'Exfil to Cloud', tactic: 'Exfiltration' },
-    { code: 'T1071.001', name: 'Web Protocols', tactic: 'Command & Control' },
-    { code: 'T1071.004', name: 'DNS Tunneling', tactic: 'Command & Control' },
-    { code: 'T1059', name: 'Scripting Interpreter', tactic: 'Execution' }
+    { code: 'T1566.001', name: 'Spearphishing Attachment', tactic: 'Initial Access' },
+    { code: 'T1204.001', name: 'User Execution: Link', tactic: 'Execution' },
+    { code: 'T1566.002', name: 'Spearphishing Link', tactic: 'Initial Access' },
+    { code: 'T1059.001', name: 'PowerShell Interpreter', tactic: 'Execution' },
+    { code: 'T1105', name: 'Ingress Tool Transfer', tactic: 'Command & Control' },
+    { code: 'T1003.001', name: 'LSASS Memory Dump', tactic: 'Credential Access' },
+    { code: 'T1003.002', name: 'Security Registry Dump', tactic: 'Credential Access' },
+    { code: 'T1071.004', name: 'DNS Tunneling Protocol', tactic: 'Command & Control' },
+    { code: 'T1071', name: 'Application Protocol', tactic: 'Command & Control' },
+    { code: 'T1021.002', name: 'SMB Remote Share Access', tactic: 'Lateral Movement' },
+    { code: 'T1021.001', name: 'Remote Desktop Protocol', tactic: 'Lateral Movement' },
+    { code: 'T1134', name: 'Access Token Manipulation', tactic: 'Privilege Escalation' },
+    { code: 'T1134.001', name: 'Token Manipulation Injection', tactic: 'Privilege Escalation' },
+    { code: 'T1489', name: 'Stop Service shadow volume', tactic: 'Defense Evasion' },
+    { code: 'T1486', name: 'Cryptographic Encryption', tactic: 'Impact' }
   ]
 
   // Severity colors helper
   const severityBadgeColor = (sev: string) => {
-    switch (sev) {
-      case 'critical': return 'critical'
-      case 'warning': return 'warning'
-      case 'info': return 'info'
-      case 'success': return 'success'
-      default: return 'default'
-    }
+    const s = sev.toLowerCase()
+    if (s === 'critical') return 'critical'
+    if (s === 'high' || s === 'warning') return 'warning'
+    if (s === 'medium') return 'info'
+    return 'default'
   }
 
   return (
     <PageShell
-      title="Attack Simulator & Threat Ingestion"
-      description="Inject active adversary telemetry vectors client-side. Validate detection coverage thresholds, firewall mitigations, and AI response auditing."
+      title="Attack Simulator & Training Engine"
+      description="Launch educational, non-malicious simulations to validate detection coverage thresholds, firewall mitigations, and incident containment."
       breadcrumbs={['Automation', 'Attack Simulator']}
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -429,23 +351,30 @@ export const AttackSimulatorPage: React.FC = () => {
                 const isSelected = activeScenarioIdx === idx
                 return (
                   <div
-                    key={idx}
-                    onClick={() => handleSelectScenario(idx)}
+                    key={sc.name}
+                    onClick={() => !isSimulating && setActiveScenarioIdx(idx)}
                     className={`p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
-                      isSelected 
+                      isSimulating 
+                        ? 'opacity-65 cursor-not-allowed border-border-custom bg-bg-primary/10'
+                        : isSelected 
                         ? 'bg-accent/10 border-accent/20 shadow-md shadow-accent/5' 
                         : 'bg-bg-primary/20 border-border-custom hover:bg-bg-primary/45 hover:border-slate-700'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <h4 className={`text-xs font-bold ${isSelected ? 'text-white font-extrabold' : 'text-slate-350'}`}>
+                      <h4 className={`text-xs font-bold ${isSelected && !isSimulating ? 'text-white font-extrabold' : 'text-slate-350'}`}>
                         {sc.name}
                       </h4>
-                      <Badge variant={sc.complexity === 'Critical' ? 'critical' : 'warning'} size="sm">
-                        {sc.complexity}
+                      <Badge variant={sc.difficulty === 'Critical' ? 'critical' : sc.difficulty === 'High' ? 'warning' : 'info'} size="sm">
+                        {sc.difficulty}
                       </Badge>
                     </div>
                     <p className="text-[10px] text-slate-500 leading-snug line-clamp-2">{sc.description}</p>
+                    
+                    <div className="flex items-center justify-between mt-2 text-[9px] font-mono text-slate-400">
+                      <span>Est. Duration: {sc.estimated_duration}s</span>
+                      <span>Risk Change: +{sc.risk_change}</span>
+                    </div>
                   </div>
                 )
               })}
@@ -456,78 +385,60 @@ export const AttackSimulatorPage: React.FC = () => {
           <Card className="border-accent/15 cyber-glow-accent">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xs font-mono font-semibold text-slate-400">SIMULATION CONTROLS</h3>
-              {isPlaying && (
+              {isSimulating ? (
                 <span className="text-[10px] font-mono text-accent flex items-center space-x-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-accent animate-ping" />
-                  <span>Running ({speed}x)</span>
+                  <RefreshCw className="h-3 w-3 animate-spin mr-1 text-accent" />
+                  <span>{activeSimulation.status === 'Pending' ? 'Pending...' : 'Running'}</span>
                 </span>
+              ) : (
+                <span className="text-[10px] font-mono text-slate-500">IDLE</span>
               )}
             </div>
 
-            {/* Main Buttons */}
+            {error && (
+              <div className="mb-4 p-3 bg-red-950/40 border border-red-500/25 rounded-xl text-[10px] font-mono text-red-400 flex items-start space-x-1.5">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Launch Simulation */}
             <div className="flex items-center space-x-3.5 mb-5">
-              {!isPlaying ? (
-                <Button
-                  variant="primary"
-                  onClick={handlePlay}
-                  className="flex-1 font-mono text-xs flex items-center justify-center space-x-1.5"
-                >
-                  <Play className="h-4 w-4" />
-                  <span>Play</span>
-                </Button>
-              ) : (
-                <Button
-                  variant="secondary"
-                  onClick={handlePause}
-                  className="flex-1 font-mono text-xs flex items-center justify-center space-x-1.5 border border-warning-custom/30 text-warning-custom hover:bg-warning-custom/5"
-                >
-                  <Pause className="h-4 w-4" />
-                  <span>Pause</span>
-                </Button>
-              )}
-              
               <Button
-                variant="secondary"
-                onClick={handleReset}
-                className="font-mono text-xs flex items-center justify-center space-x-1.5 border border-border-custom hover:border-slate-650"
+                variant="primary"
+                onClick={() => handleRunSimulation(activeScenario.name)}
+                disabled={isSimulating || loading || scenarios.length === 0}
+                className="flex-1 font-mono text-xs flex items-center justify-center space-x-1.5"
               >
-                <RotateCcw className="h-4 w-4 text-slate-400" />
-                <span>Reset</span>
+                <Play className="h-4 w-4 fill-current" />
+                <span>Run {activeScenario?.name || 'Simulation'}</span>
               </Button>
             </div>
 
-            {/* Speed Multipliers */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-bg-primary/50 border border-border-custom text-xs font-mono">
-              <span className="text-slate-450">Simulation Speed:</span>
-              <div className="flex space-x-1 bg-bg-secondary p-1 rounded-lg border border-border-custom">
-                {([1, 2, 4] as const).map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setSpeed(s)}
-                    className={`px-2.5 py-1 text-[10px] font-bold rounded cursor-pointer transition ${
-                      speed === s 
-                        ? 'bg-accent text-[#0B1020]' 
-                        : 'text-slate-500 hover:text-slate-200'
-                    }`}
-                  >
-                    {s}x
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Ingestion Progress bar */}
-            {currentStep >= 0 && (
-              <div className="mt-5 space-y-2">
-                <div className="flex justify-between text-[10px] font-mono text-slate-500">
-                  <span>Progress: {currentStep + 1} / {activeScenario.steps.length} Steps</span>
-                  <span>{Math.round(((currentStep + 1) / activeScenario.steps.length) * 100)}%</span>
+            {/* Progress Bar (Visible while simulating) */}
+            {isSimulating && (
+              <div className="mt-5 space-y-3 p-3 bg-bg-primary/30 border border-border-custom rounded-xl font-mono">
+                <div className="flex justify-between text-[10px] text-slate-400">
+                  <span>Stages: {completedStages} / {totalStages}</span>
+                  <span>{progressPercent}%</span>
                 </div>
+                
                 <div className="h-1.5 w-full bg-bg-primary rounded-full overflow-hidden border border-border-custom">
                   <div 
                     className="h-full bg-accent transition-all duration-300"
-                    style={{ width: `${((currentStep + 1) / activeScenario.steps.length) * 100}%` }}
+                    style={{ width: `${progressPercent}%` }}
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-border-custom/50 text-[10px] text-slate-500">
+                  <div>
+                    <span className="block text-[8px] text-slate-600 uppercase">Elapsed Time</span>
+                    <span className="font-bold text-white text-xs">{elapsedTime}s</span>
+                  </div>
+                  <div>
+                    <span className="block text-[8px] text-slate-600 uppercase">Est. Remaining</span>
+                    <span className="font-bold text-accent text-xs">{remainingTime}s</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -541,24 +452,37 @@ export const AttackSimulatorPage: React.FC = () => {
             </div>
 
             <div className="space-y-3.5 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
-              {timelineIocs.length === 0 ? (
+              {!isSimulating || activeEvents.length === 0 ? (
                 <div className="text-center py-8 text-slate-550 text-xs font-mono">
-                  No active threat signatures matched. Start simulation.
+                  No active threat signatures matched. Start a simulation run.
                 </div>
               ) : (
-                timelineIocs.map((ioc, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 bg-bg-primary/45 border border-border-custom/50 rounded-xl hover:border-slate-700 transition"
-                  >
-                    <span className="text-[9px] font-mono text-accent uppercase font-bold block">
-                      {ioc.type}
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-300 truncate block mt-0.5 max-w-[280px]">
-                      {ioc.value}
-                    </span>
-                  </div>
-                ))
+                activeEvents.map((evt, idx) => {
+                  const stageObj = currentScenarioDetails?.stages?.find(s => s.stage_number === evt.stage)
+                  if (!stageObj || (!stageObj.source_ip && !stageObj.destination_ip)) return null
+                  return (
+                    <div
+                      key={idx}
+                      className="p-3 bg-bg-primary/45 border border-border-custom/50 rounded-xl hover:border-slate-700 transition space-y-1 font-mono"
+                    >
+                      <span className="text-[9px] text-accent uppercase font-bold block">
+                        Stage {evt.stage}: Ingress Signatures
+                      </span>
+                      {stageObj.source_ip && (
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-slate-500">Source:</span>
+                          <span className="text-slate-350">{stageObj.source_ip}</span>
+                        </div>
+                      )}
+                      {stageObj.destination_ip && (
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-slate-500">Destination:</span>
+                          <span className="text-slate-350">{stageObj.destination_ip}</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
               )}
             </div>
           </Card>
@@ -585,12 +509,12 @@ export const AttackSimulatorPage: React.FC = () => {
                   }`}>
                     {currentRiskScore}
                   </span>
-                  <span className="text-[9px] font-mono text-slate-500">Telemetry Rating</span>
+                  <span className="text-[9px] font-mono text-slate-500">Risk Factor</span>
                 </div>
               </div>
 
               <Badge variant={currentRiskScore > 75 ? 'critical' : currentRiskScore > 50 ? 'warning' : 'success'} size="sm">
-                {currentRiskScore > 75 ? 'CRITICAL RISK' : currentRiskScore > 50 ? 'MEDIUM RISK' : 'STABLE NODE'}
+                {currentRiskScore > 75 ? 'CRITICAL THREATS' : currentRiskScore > 50 ? 'MEDIUM RISK' : 'SECURE NODE'}
               </Badge>
             </Card>
 
@@ -601,15 +525,20 @@ export const AttackSimulatorPage: React.FC = () => {
                   <Brain className="h-4.5 w-4.5 text-accent animate-pulse" />
                   <span className="text-xs font-bold text-white">AI Analyst Cognitive Brief</span>
                 </div>
-                <span className="text-[9px] font-mono text-slate-500">Session ID: AI-SIM-OP4</span>
+                <span className="text-[9px] font-mono text-slate-500">
+                  {isSimulating ? `RUN-${activeSimulation.id.slice(0, 8)}` : 'STANDBY'}
+                </span>
               </div>
 
               <div className="flex-1 p-3.5 rounded-xl bg-bg-primary/45 border border-border-custom/50 text-xs text-slate-350 leading-relaxed font-sans min-h-[100px] flex items-center justify-center">
-                {activeStepDetail ? (
-                  <p>{activeStepDetail.aiExplanation}</p>
+                {isSimulating && activeStepDetail ? (
+                  <div className="space-y-2">
+                    <p className="font-semibold text-white font-mono text-accent">Stage {activeStepDetail.stage}: {activeStepDetail.title}</p>
+                    <p className="text-slate-400 font-mono text-[11px] leading-relaxed">{activeStepDetail.description}</p>
+                  </div>
                 ) : (
                   <p className="text-slate-550 font-mono text-center">
-                    Simulator idle. Start playback scenario to activate cognitive vulnerability monitoring.
+                    Simulator idle. Trigger a training scenario to monitor cognitive network telemetry audits.
                   </p>
                 )}
               </div>
@@ -626,7 +555,7 @@ export const AttackSimulatorPage: React.FC = () => {
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 mt-4">
               {allMitreCodes.map((m) => {
-                const isActive = activeStepDetail?.technique === m.code
+                const isActive = isSimulating && activeStepDetail?.mitre_technique === m.code
                 const borderColors = isActive
                   ? 'border-accent bg-accent/15 shadow-sm shadow-accent/10 scale-102 font-bold text-accent'
                   : 'border-border-custom bg-bg-primary/20 hover:border-slate-700 text-slate-400'
@@ -636,7 +565,7 @@ export const AttackSimulatorPage: React.FC = () => {
                     key={m.code}
                     className={`p-3 rounded-xl border text-center flex flex-col justify-between transition-all duration-300 min-h-[90px] ${borderColors}`}
                   >
-                    <span className="text-[10px] font-mono block text-slate-500 uppercase">{m.tactic}</span>
+                    <span className="text-[9px] font-mono block text-slate-500 uppercase">{m.tactic}</span>
                     <span className="text-xs font-mono font-extrabold mt-1 block truncate">{m.code}</span>
                     <span className="text-[9px] text-slate-400 block truncate mt-1 leading-snug">{m.name}</span>
                   </div>
@@ -652,43 +581,52 @@ export const AttackSimulatorPage: React.FC = () => {
                 <Clock className="h-5 w-5 text-slate-450" />
                 <h3 className="text-sm font-bold text-white">Live Event Timeline</h3>
               </div>
-              {timelineEvents.length > 0 && (
-                <span className="text-[10px] font-mono text-slate-500">{timelineEvents.length} Logs recorded</span>
+              {isSimulating && activeEvents.length > 0 && (
+                <span className="text-[10px] font-mono text-slate-500">{activeEvents.length} Logs recorded</span>
               )}
             </div>
 
             <div className="flex-1 overflow-y-auto max-h-[300px] pr-1 space-y-4 custom-scrollbar min-h-[140px] flex flex-col justify-start">
-              {timelineEvents.length === 0 ? (
+              {!isSimulating || activeEvents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-slate-600 font-mono text-xs text-center flex-1">
                   <Terminal className="h-5 w-5 mb-2 text-slate-700" />
-                  <span>No events captured. Click play to inject telemetry.</span>
+                  <span>No events captured. Launch a simulation to inject telemetry.</span>
                 </div>
               ) : (
-                timelineEvents.map((evt, idx) => (
+                [...activeEvents].reverse().map((evt, idx) => (
                   <div
                     key={idx}
-                    className="flex items-start space-x-4 p-3.5 rounded-xl bg-bg-primary/45 border border-border-custom/50 hover:bg-bg-primary/80 transition duration-150 animate-fadeIn"
+                    className="flex items-start space-x-4 p-3.5 rounded-xl bg-bg-primary/45 border border-border-custom/50 hover:bg-bg-primary/80 transition duration-150 animate-fadeIn animate-duration-300"
                   >
-                    <div className={`p-2 rounded-lg bg-bg-secondary border border-border-custom text-slate-400 mt-0.5 shrink-0`}>
+                    <div className="p-2 rounded-lg bg-bg-secondary border border-border-custom text-slate-400 mt-0.5 shrink-0">
                       <Activity className={`h-4 w-4 ${
-                        evt.severity === 'critical' ? 'text-critical-custom' : 
-                        evt.severity === 'warning' ? 'text-warning-custom' : 
-                        evt.severity === 'info' ? 'text-info-custom' : 
-                        'text-success-custom'
+                        evt.severity.toLowerCase() === 'critical' ? 'text-critical-custom' : 
+                        evt.severity.toLowerCase() === 'high' ? 'text-warning-custom' : 
+                        'text-info-custom'
                       }`} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                         <div className="flex items-center space-x-2">
-                          <span className="text-xs font-mono font-bold text-white">{evt.name}</span>
-                          <span className="text-[10px] font-mono text-accent font-semibold">{evt.technique}</span>
+                          <span className="text-xs font-mono font-bold text-white">Stage {evt.stage}: {evt.title}</span>
+                          {evt.mitre_technique && (
+                            <span className="text-[10px] font-mono text-accent font-semibold">{evt.mitre_technique}</span>
+                          )}
                         </div>
                         <div className="flex items-center space-x-2 shrink-0">
                           <Badge variant={severityBadgeColor(evt.severity)} size="sm">{evt.severity}</Badge>
-                          <span className="text-[10px] font-mono text-slate-550">{evt.timestamp}</span>
+                          <span className="text-[10px] font-mono text-slate-550">
+                            {new Date(evt.timestamp).toLocaleTimeString()}
+                          </span>
                         </div>
                       </div>
                       <p className="text-xs text-slate-450 leading-relaxed">{evt.description}</p>
+                      {evt.incident_id && (
+                        <div className="mt-2 text-[10px] font-mono text-red-400 flex items-center space-x-1.5 bg-red-950/20 px-2.5 py-1.5 rounded-lg border border-red-500/10 w-fit">
+                          <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                          <span>Generated Incident ID: {evt.incident_id.slice(0, 8)}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))
@@ -699,6 +637,173 @@ export const AttackSimulatorPage: React.FC = () => {
         </div>
 
       </div>
+
+      {/* BOTTOM SECTION: Simulation History & Audit Logs */}
+      <Card className="mt-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-base font-bold text-white m-0">Simulation History & Audit Logs</h3>
+            <p className="text-slate-500 text-xs mt-1">Audit logs of completed and failed educational training runs.</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={fetchHistory} disabled={loading} className="font-mono text-xs">
+            Refresh History
+          </Button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-border-custom/50 text-[10px] font-mono text-slate-500 uppercase">
+                <th className="py-3 px-4">Simulation Name</th>
+                <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4">Started By</th>
+                <th className="py-3 px-4">Started Time</th>
+                <th className="py-3 px-4">Completed Time</th>
+                <th className="py-3 px-4">Duration</th>
+                <th className="py-3 px-4 text-center">Incidents</th>
+                <th className="py-3 px-4 text-center">Risk Delta</th>
+                <th className="py-3 px-4 text-center">Overall Risk</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-custom/20 text-xs">
+              {loading && history.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="text-center py-8 text-slate-500 font-mono">
+                    Loading audit records...
+                  </td>
+                </tr>
+              ) : history.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="text-center py-8 text-slate-550 font-mono">
+                    No historical simulation runs found. Launch one above!
+                  </td>
+                </tr>
+              ) : (
+                history.map((sim) => (
+                  <tr
+                    key={sim.id}
+                    className="hover:bg-bg-primary/20 transition-colors duration-150 border-b border-border-custom/20"
+                  >
+                    <td className="py-3.5 px-4 font-bold text-white">{sim.name}</td>
+                    <td className="py-3.5 px-4">
+                      <Badge variant={
+                        sim.status === 'Completed' ? 'success' :
+                        sim.status === 'Running' ? 'info' :
+                        sim.status === 'Failed' ? 'critical' : 'warning'
+                      } size="sm">
+                        {sim.status}
+                      </Badge>
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-slate-400">
+                      {sim.initiated_by_user?.username || `User #${sim.initiated_by}`}
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-400">
+                      {new Date(sim.started_at).toLocaleString()}
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-400">
+                      {sim.completed_at ? new Date(sim.completed_at).toLocaleString() : '-'}
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-slate-400">
+                      {sim.status === 'Running' ? '-' : `${sim.duration_seconds}s`}
+                    </td>
+                    <td className="py-3.5 px-4 text-center font-mono font-bold text-white">
+                      {sim.incident_count}
+                    </td>
+                    <td className="py-3.5 px-4 text-center font-mono text-red-400">
+                      +{sim.risk_score_change}
+                    </td>
+                    <td className="py-3.5 px-4 text-center font-mono font-bold text-accent">
+                      {sim.overall_risk}
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end space-x-2">
+                        <button
+                          onClick={() => handleViewTimeline(sim)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:bg-bg-primary/45 hover:text-accent border border-border-custom/50 hover:border-accent/40 transition cursor-pointer"
+                          title="View Timeline"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteSimulation(sim.id, e)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:bg-bg-primary/45 hover:text-critical-custom border border-border-custom/50 hover:border-red-500/40 transition cursor-pointer"
+                          title="Delete Simulation"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* TIMELINE MODAL FOR HISTORY DETAILS */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={selectedHistorySim ? `Audit Details: ${selectedHistorySim.name}` : ''}
+      >
+        {selectedHistorySim && (
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
+            <div className="grid grid-cols-2 gap-4 pb-4 border-b border-border-custom font-mono text-[11px] text-slate-400">
+              <div>
+                <span className="block text-[9px] text-slate-500 uppercase">Started By</span>
+                <span className="text-white font-bold">{selectedHistorySim.initiated_by_user?.username || 'System'}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] text-slate-500 uppercase">Overall Risk Score</span>
+                <span className="text-accent font-bold text-xs">{selectedHistorySim.overall_risk}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] text-slate-500 uppercase">Incident Count</span>
+                <span className="text-white font-bold">{selectedHistorySim.incident_count} Incidents</span>
+              </div>
+              <div>
+                <span className="block text-[9px] text-slate-500 uppercase">Duration</span>
+                <span className="text-white font-bold">{selectedHistorySim.duration_seconds} seconds</span>
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-2">
+              <h4 className="text-xs font-mono font-bold text-slate-400 uppercase">Execution Stages</h4>
+              
+              {historyEvents.length === 0 ? (
+                <p className="text-slate-500 font-mono text-center py-6 text-xs">No stage events recorded for this run.</p>
+              ) : (
+                historyEvents.map((evt, idx) => (
+                  <div key={idx} className="p-3 bg-bg-primary/30 border border-border-custom/50 rounded-xl space-y-2">
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                      <span className="text-[11px] font-mono font-bold text-white">
+                        Stage {evt.stage}: {evt.title}
+                      </span>
+                      <Badge variant={severityBadgeColor(evt.severity)} size="sm">
+                        {evt.severity}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-mono">{evt.description}</p>
+                    {evt.mitre_technique && (
+                      <div className="text-[10px] font-mono text-slate-500">
+                        MITRE technique: <span className="text-accent font-semibold">{evt.mitre_technique}</span>
+                      </div>
+                    )}
+                    {evt.incident_id && (
+                      <div className="flex items-center space-x-1.5 text-[10px] font-mono text-red-400 bg-red-950/20 px-2 py-1 rounded border border-red-500/10 w-fit mt-1">
+                        <AlertTriangle className="h-3 w-3 text-red-500" />
+                        <span>Incident Created: {evt.incident_id.slice(0, 8)}</span>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
     </PageShell>
   )
 }
